@@ -1,0 +1,33 @@
+{
+  "name": "note-auto-poster",
+  "version": "0.1.0",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "build": "vite build && electron-builder"
+  },
+  "dependencies": {
+    "react": "^18",
+    "react-dom": "^18",
+    "react-router-dom": "^6",
+    "@anthropic-ai/sdk": "^0.39",
+    "better-sqlite3": "^11",
+    "csv-parse": "^5",
+    "csv-stringify": "^6",
+    "node-cron": "^3",
+    "electron-store": "^10",
+    "playwright": "^1.49"
+  },
+  "devDependencies": {
+    "electron": "^33",
+    "electron-builder": "^25",
+    "vite": "^6",
+    "@vitejs/plugin-react": "^4",
+    "tailwindcss": "^3",
+    "postcss": "^8",
+    "autoprefixer": "^10",
+    "concurrently": "^9",
+    "wait-on": "^8"
+  }
+}
