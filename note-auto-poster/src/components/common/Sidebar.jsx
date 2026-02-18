@@ -1,17 +1,17 @@
 import { NavLink } from 'react-router-dom';
 
 const links = [
-  { to: '/', label: 'レビュー待ち' },
-  { to: '/dashboard', label: 'ダッシュボード' },
-  { to: '/accounts', label: 'アカウント管理' },
-  { to: '/settings', label: '設定' },
+  { to: '/', label: 'レビュー待ち', text: '受信トレイ' },
+  { to: '/dashboard', label: 'ダッシュボード', text: '概要' },
+  { to: '/accounts', label: 'アカウント管理', text: 'ユーザー' },
+  { to: '/settings', label: '設定', text: 'オプション' },
 ];
 
 export default function Sidebar() {
   return (
     <aside className="w-56 bg-gray-900 text-gray-100 flex flex-col">
       <div className="px-4 py-4 text-lg font-bold border-b border-gray-700">
-        note-auto-poster
+        note AutoPoster
       </div>
       <nav className="flex-1 px-2 py-4 space-y-1">
         {links.map((link) => (
@@ -19,6 +19,7 @@ export default function Sidebar() {
             key={link.to}
             to={link.to}
             end={link.to === '/'}
+            aria-label={link.label}
             className={({ isActive }) =>
               `block px-3 py-2 rounded text-sm ${
                 isActive
@@ -27,7 +28,7 @@ export default function Sidebar() {
               }`
             }
           >
-            {link.label}
+            {link.text}
           </NavLink>
         ))}
       </nav>
