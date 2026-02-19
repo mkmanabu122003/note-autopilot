@@ -46,11 +46,11 @@ ipcMain.handle('sheets:testConnection', async (_, accountId) => {
   try {
     const config = require('./utils/config');
     const { google } = require('googleapis');
-    const keyPath = config.get('api.google_service_account_key_path');
+    const keyPath = await config.get('api.google_service_account_key_path');
     if (!keyPath || !fs.existsSync(keyPath)) {
       return { success: false, error: 'サービスアカウントキーファイルが見つかりません' };
     }
-    const account = config.getAccount(accountId);
+    const account = await config.getAccount(accountId);
     if (!account?.sheets?.spreadsheet_id) {
       return { success: false, error: 'スプレッドシートIDが設定されていません' };
     }
@@ -74,7 +74,7 @@ ipcMain.handle('sheets:testConnection', async (_, accountId) => {
 ipcMain.handle('config:getAll', async () => {
   try {
     const config = require('./utils/config');
-    return config.getAll();
+    return await config.getAll();
   } catch (e) {
     return {};
   }
@@ -83,7 +83,7 @@ ipcMain.handle('config:getAll', async () => {
 ipcMain.handle('config:get', async (_, key) => {
   try {
     const config = require('./utils/config');
-    return config.get(key);
+    return await config.get(key);
   } catch (e) {
     return null;
   }
@@ -92,7 +92,7 @@ ipcMain.handle('config:get', async (_, key) => {
 ipcMain.handle('config:set', async (_, key, value) => {
   try {
     const config = require('./utils/config');
-    config.set(key, value);
+    await config.set(key, value);
   } catch (e) {
     throw new Error(e.message);
   }
@@ -102,7 +102,7 @@ ipcMain.handle('config:set', async (_, key, value) => {
 ipcMain.handle('accounts:list', async () => {
   try {
     const config = require('./utils/config');
-    return config.getAccounts();
+    return await config.getAccounts();
   } catch (e) {
     return {};
   }
@@ -111,7 +111,7 @@ ipcMain.handle('accounts:list', async () => {
 ipcMain.handle('accounts:listActive', async () => {
   try {
     const config = require('./utils/config');
-    return config.getActiveAccounts();
+    return await config.getActiveAccounts();
   } catch (e) {
     return [];
   }
@@ -120,7 +120,7 @@ ipcMain.handle('accounts:listActive', async () => {
 ipcMain.handle('accounts:get', async (_, id) => {
   try {
     const config = require('./utils/config');
-    return config.getAccount(id);
+    return await config.getAccount(id);
   } catch (e) {
     return null;
   }
@@ -129,7 +129,7 @@ ipcMain.handle('accounts:get', async (_, id) => {
 ipcMain.handle('accounts:set', async (_, id, data) => {
   try {
     const config = require('./utils/config');
-    config.setAccount(id, data);
+    await config.setAccount(id, data);
   } catch (e) {
     throw new Error(e.message);
   }

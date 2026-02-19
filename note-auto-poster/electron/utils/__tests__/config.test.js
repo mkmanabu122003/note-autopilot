@@ -30,12 +30,12 @@ beforeEach(() => {
 });
 
 describe('config', () => {
-  it('set/get で値が保存・取得できる', () => {
-    config.set('api.anthropic_key', 'test-key-123');
-    expect(config.get('api.anthropic_key')).toBe('test-key-123');
+  it('set/get で値が保存・取得できる', async () => {
+    await config.set('api.anthropic_key', 'test-key-123');
+    expect(await config.get('api.anthropic_key')).toBe('test-key-123');
   });
 
-  it('setAccount/getAccount でアカウント設定が保存・取得できる', () => {
+  it('setAccount/getAccount でアカウント設定が保存・取得できる', async () => {
     const accountData = {
       display_name: 'テスト',
       enabled: true,
@@ -44,17 +44,17 @@ describe('config', () => {
       pillars: [],
       privacy: { real_name: 'hidden' },
     };
-    config.setAccount('test-account', accountData);
-    const result = config.getAccount('test-account');
+    await config.setAccount('test-account', accountData);
+    const result = await config.getAccount('test-account');
     expect(result.display_name).toBe('テスト');
     expect(result.enabled).toBe(true);
     expect(result.revenue.monthly_target).toBe(300000);
   });
 
-  it('getActiveAccounts は enabled: true のアカウントのみ返す', () => {
-    config.setAccount('active', { display_name: 'Active', enabled: true });
-    config.setAccount('inactive', { display_name: 'Inactive', enabled: false });
-    const active = config.getActiveAccounts();
+  it('getActiveAccounts は enabled: true のアカウントのみ返す', async () => {
+    await config.setAccount('active', { display_name: 'Active', enabled: true });
+    await config.setAccount('inactive', { display_name: 'Inactive', enabled: false });
+    const active = await config.getActiveAccounts();
     expect(active.some((a) => a.id === 'active')).toBe(true);
     expect(active.some((a) => a.id === 'inactive')).toBe(false);
   });
