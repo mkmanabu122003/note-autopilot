@@ -32,6 +32,7 @@ export default function GoogleSheetsSection({ config, onConfigChange }) {
         setStatus('authenticated');
         await api.config.set('google.key_file', filePath);
         await api.config.set('google.client_email', result.client_email);
+        await api.config.set('api.google_service_account_key_path', filePath);
         showToast('Google Sheets鍵ファイルを設定しました', 'success');
         onConfigChange?.();
       } else {
