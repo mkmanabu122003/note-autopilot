@@ -13,6 +13,7 @@ const schema = {
       generation_model: { type: 'string', default: 'claude-opus-4-6-20260205' },
       scoring_model: { type: 'string', default: 'claude-haiku-4-5-20251001' },
       regeneration_model: { type: 'string', default: 'claude-opus-4-6-20260205' },
+      google_service_account_key_path: { type: 'string', default: '' },
     },
     default: {},
   },
@@ -61,7 +62,7 @@ function loadConfig() {
     sheets: {
       spreadsheetId: process.env.GOOGLE_SPREADSHEET_ID || '',
       sheetName: process.env.GOOGLE_SHEET_NAME || 'topics',
-      credentialsPath: process.env.GOOGLE_CREDENTIALS_PATH || '',
+      credentialsPath: api.google_service_account_key_path || process.env.GOOGLE_CREDENTIALS_PATH || '',
     },
     dataDir: process.env.DATA_DIR || DEFAULT_DATA_DIR,
   };

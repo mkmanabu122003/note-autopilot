@@ -44,12 +44,29 @@ ipcMain.handle('google:readKeyFile', async (_, filePath) => {
 
 ipcMain.handle('sheets:testConnection', async (_, accountId) => {
   try {
-    const { SheetManager } = require('./utils/csv-manager');
-    const sheetManager = new SheetManager();
-    const topics = await sheetManager.readTopics(accountId);
-    return { success: true, count: topics.length };
-  } catch (e) {
-    return { success: false, error: e.message };
+    const config = require('./utils/config');
+    const { google } = require('googleapis');
+    const keyPath = config.get('api.google_service_account_key_path');
+    if (!keyPath || !fs.existsSync(keyPath)) {
+      return { success: false, error: 'サービスアカウントキーファイルが見つかりません' };
+    }
+    const account = config.getAccount(accountId);
+    if (!account?.sheets?.spreadsheet_id) {
+      return { success: false, error: 'スプレッドシートIDが設定されていません' };
+    }
+    const auth = new google.auth.GoogleAuth({
+      keyFile: keyPath,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+    });
+    const sheets = google.sheets({ version: 'v4', auth });
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: account.sheets.spreadsheet_id,
+      range: `${account.sheets.sheet_name || 'topics'}!A1:J1`,
+    });
+    const headers = res.data.values?.[0] || [];
+    return { success: true, headers };
+  } catch (error) {
+    return { success: false, error: error.message };
   }
 });
 

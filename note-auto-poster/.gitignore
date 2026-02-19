@@ -1,3 +1,5 @@
 node_modules/
 dist/
 release/
+data/logs/
+data/accounts/*/topics-cache.json
