@@ -42,7 +42,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   window.electronAPI = mockElectronAPI;
   mockElectronAPI.config.getAll.mockResolvedValue({
-    api: { anthropic_key: 'sk-ant-test123', generation_model: 'claude-opus-4-6-20260205' },
+    api: { anthropic_key: 'sk-ant-test123', generation_model: 'claude-sonnet-4-5-20250929' },
     google: {},
     app: { language: '日本語', min_chars: 1500, max_chars: 4000 },
   });

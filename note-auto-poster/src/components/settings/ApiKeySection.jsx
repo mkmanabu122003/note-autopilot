@@ -2,13 +2,14 @@ import { useState } from 'react';
 import { useToast } from '../../hooks/useToast';
 
 const GENERATION_MODELS = [
-  'claude-opus-4-6-20260205',
-  'claude-sonnet-4-20250514',
+  'claude-sonnet-4-5-20250929',
+  'claude-opus-4-6',
+  'claude-haiku-4-5-20251001',
 ];
 
 const SCORING_MODELS = [
   'claude-haiku-4-5-20251001',
-  'claude-sonnet-4-20250514',
+  'claude-sonnet-4-5-20250929',
 ];
 
 export default function ApiKeySection({ config, onConfigChange }) {
