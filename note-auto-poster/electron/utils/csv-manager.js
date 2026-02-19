@@ -3,20 +3,64 @@ const fs = require('fs');
 const path = require('path');
 const config = require('./config');
 
-const COLUMNS = ['id', 'theme', 'keywords', 'additional_instructions', 'pillar', 'is_paid', 'price', 'free_preview_ratio', 'status', 'updated_at'];
 const DEFAULT_DATA_DIR = path.join(__dirname, '..', '..', 'data');
 
-function rowToObject(row) {
-  const obj = {};
-  COLUMNS.forEach((col, i) => {
-    let val = row[i] !== undefined ? row[i] : '';
-    if (col === 'id') val = parseInt(val, 10) || 0;
-    else if (col === 'is_paid') val = val === 'TRUE' || val === 'true' || val === true;
-    else if (col === 'price') val = parseInt(val, 10) || 0;
-    else if (col === 'free_preview_ratio') val = parseFloat(val) || 0;
-    obj[col] = val;
-  });
+// Map common header variations to normalized field names
+const HEADER_ALIASES = {
+  id: 'id',
+  theme: 'theme',
+  テーマ: 'theme',
+  topic: 'theme',
+  keywords: 'keywords',
+  キーワード: 'keywords',
+  additional_instructions: 'additional_instructions',
+  追加指示: 'additional_instructions',
+  pillar: 'pillar',
+  コンテンツ柱: 'pillar',
+  is_paid: 'is_paid',
+  有料: 'is_paid',
+  price: 'price',
+  価格: 'price',
+  free_preview_ratio: 'free_preview_ratio',
+  無料プレビュー率: 'free_preview_ratio',
+  status: 'status',
+  ステータス: 'status',
+  updated_at: 'updated_at',
+  更新日: 'updated_at',
+};
+
+function normalizeHeader(header) {
+  const trimmed = (header || '').trim().toLowerCase();
+  return HEADER_ALIASES[trimmed] || HEADER_ALIASES[header?.trim()] || trimmed;
+}
+
+function rowToObject(row, headerMap, rowIndex) {
+  const obj = { id: rowIndex };
+
+  for (const [colIndex, fieldName] of Object.entries(headerMap)) {
+    const val = row[colIndex] !== undefined ? row[colIndex] : '';
+    switch (fieldName) {
+      case 'id': {
+        const num = parseInt(val, 10);
+        if (num > 0) obj.id = num;
+        break;
+      }
+      case 'is_paid':
+        obj.is_paid = val === 'TRUE' || val === 'true' || val === true || val === '1';
+        break;
+      case 'price':
+        obj.price = parseInt(val, 10) || 0;
+        break;
+      case 'free_preview_ratio':
+        obj.free_preview_ratio = parseFloat(val) || 0;
+        break;
+      default:
+        obj[fieldName] = val;
+    }
+  }
+
   if (!obj.status) obj.status = 'pending';
+  if (!obj.theme) obj.theme = '';
   return obj;
 }
 
@@ -74,11 +118,22 @@ class SheetManager {
 
       const res = await sheets.spreadsheets.values.get({
         spreadsheetId,
-        range: `${sheetName}!A2:J`,
+        range: `${sheetName}!A1:J`,
       });
 
       const rows = res.data.values || [];
-      const topics = rows.map((row) => rowToObject(row)).filter((t) => t.id > 0);
+      if (rows.length <= 1) return [];
+
+      // Build header mapping: colIndex -> normalized field name
+      const headerRow = rows[0];
+      const headerMap = {};
+      headerRow.forEach((h, i) => {
+        const normalized = normalizeHeader(h);
+        if (normalized) headerMap[i] = normalized;
+      });
+
+      const dataRows = rows.slice(1);
+      const topics = dataRows.map((row, idx) => rowToObject(row, headerMap, idx + 1));
 
       this._saveCache(accountId, topics);
       return topics;
@@ -97,20 +152,52 @@ class SheetManager {
     const { spreadsheetId, sheetName } = await this._getAccountSheets(accountId);
     const sheets = google.sheets({ version: 'v4', auth });
 
-    // Find the row for this topic
-    const topics = await this.readTopics(accountId);
-    const topicIndex = topics.findIndex((t) => t.id === topicId);
-    if (topicIndex === -1) throw new Error(`トピックID ${topicId} が見つかりません`);
+    // Read fresh to find the correct row
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${sheetName}!A1:J`,
+    });
+    const rows = res.data.values || [];
+    if (rows.length <= 1) throw new Error('シートにデータがありません');
 
-    const rowIndex = topicIndex + 2; // +1 for header, +1 for 1-based index
+    const headerRow = rows[0];
+    const statusCol = headerRow.findIndex((h) => normalizeHeader(h) === 'status');
+    const updatedCol = headerRow.findIndex((h) => normalizeHeader(h) === 'updated_at');
+
+    // Find the topic row by matching id or by index
+    const dataRows = rows.slice(1);
+    const headerMap = {};
+    headerRow.forEach((h, i) => {
+      const normalized = normalizeHeader(h);
+      if (normalized) headerMap[i] = normalized;
+    });
+
+    let targetRowIndex = -1;
+    for (let i = 0; i < dataRows.length; i++) {
+      const topic = rowToObject(dataRows[i], headerMap, i + 1);
+      if (topic.id === topicId) {
+        targetRowIndex = i + 2; // 1-based, skip header
+        break;
+      }
+    }
+    if (targetRowIndex === -1) throw new Error(`トピックID ${topicId} が見つかりません`);
+
     const now = new Date().toISOString();
 
-    await sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: `${sheetName}!I${rowIndex}:J${rowIndex}`,
-      valueInputOption: 'RAW',
-      requestBody: { values: [[status, now]] },
-    });
+    if (statusCol >= 0) {
+      const colLetter = String.fromCharCode(65 + statusCol);
+      const range = updatedCol >= 0
+        ? `${sheetName}!${colLetter}${targetRowIndex}:${String.fromCharCode(65 + updatedCol)}${targetRowIndex}`
+        : `${sheetName}!${colLetter}${targetRowIndex}`;
+      const values = updatedCol >= 0 ? [[status, now]] : [[status]];
+
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range,
+        valueInputOption: 'RAW',
+        requestBody: { values },
+      });
+    }
 
     return { success: true };
   }
@@ -120,19 +207,23 @@ class SheetManager {
     const { spreadsheetId, sheetName } = await this._getAccountSheets(accountId);
     const sheets = google.sheets({ version: 'v4', auth });
 
-    const now = new Date().toISOString();
-    const row = [
-      topic.id || '',
-      topic.theme || '',
-      topic.keywords || '',
-      topic.additional_instructions || '',
-      topic.pillar || '',
-      topic.is_paid ? 'TRUE' : 'FALSE',
-      topic.price || 0,
-      topic.free_preview_ratio || 0,
-      topic.status || 'pending',
-      now,
-    ];
+    // Read headers to match column order
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${sheetName}!1:1`,
+    });
+    const headerRow = (res.data.values && res.data.values[0]) || [];
+
+    const row = headerRow.map((h) => {
+      const field = normalizeHeader(h);
+      switch (field) {
+        case 'is_paid': return topic.is_paid ? 'TRUE' : 'FALSE';
+        case 'price': return topic.price || 0;
+        case 'free_preview_ratio': return topic.free_preview_ratio || 0;
+        case 'updated_at': return new Date().toISOString();
+        default: return topic[field] || '';
+      }
+    });
 
     await sheets.spreadsheets.values.append({
       spreadsheetId,
@@ -149,4 +240,4 @@ class SheetManager {
   }
 }
 
-module.exports = { SheetManager, COLUMNS, rowToObject };
+module.exports = { SheetManager, HEADER_ALIASES, normalizeHeader, rowToObject };
