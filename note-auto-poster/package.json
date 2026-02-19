@@ -5,7 +5,11 @@
   "scripts": {
     "dev": "vite",
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
-    "build": "vite build && electron-builder",
+    "build": "vite build && electron-builder --publish never",
+    "build:win": "vite build && electron-builder --win --publish never",
+    "build:mac": "vite build && electron-builder --mac --publish never",
+    "build:linux": "vite build && electron-builder --linux --publish never",
+    "pack": "vite build && electron-builder --dir --publish never",
     "test": "vitest run"
   },
   "dependencies": {
