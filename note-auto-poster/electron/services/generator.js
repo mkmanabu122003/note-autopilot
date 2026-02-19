@@ -50,7 +50,14 @@ class Generator {
   async _getApiConfig() {
     const apiKey = await config.get('api.anthropic_key');
     if (!apiKey) throw new Error('Anthropic APIキーが設定されていません');
-    const model = (await config.get('api.generation_model')) || 'claude-sonnet-4-5-20250929';
+    const VALID_MODELS = ['claude-sonnet-4-5-20250929', 'claude-opus-4-6', 'claude-haiku-4-5-20251001'];
+    const DEFAULT_MODEL = 'claude-sonnet-4-5-20250929';
+    let model = await config.get('api.generation_model');
+    if (!model || !VALID_MODELS.includes(model)) {
+      model = DEFAULT_MODEL;
+      // Auto-fix the saved config
+      await config.set('api.generation_model', model).catch(() => {});
+    }
     return { apiKey, model };
   }
 
@@ -89,7 +96,7 @@ class Generator {
           topicId,
           title,
           theme: topic.theme,
-          content: articleText,
+          body: articleText,
           articlePath,
           status: 'generated',
           created_at: new Date().toISOString(),
