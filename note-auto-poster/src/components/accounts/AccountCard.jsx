@@ -41,7 +41,10 @@ export default function AccountCard({ accountId, initialData, onSave, onDelete }
     setTesting(true);
     setTestResult(null);
     try {
-      const result = await window.electronAPI.sheets.testConnection(accountId);
+      const result = await window.electronAPI.sheets.testConnection(accountId, {
+        spreadsheet_id: data.sheets?.spreadsheet_id,
+        sheet_name: data.sheets?.sheet_name,
+      });
       setTestResult(result);
     } catch (e) {
       setTestResult({ success: false, error: e.message });
