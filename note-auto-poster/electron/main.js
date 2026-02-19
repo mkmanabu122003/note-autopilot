@@ -274,7 +274,7 @@ ipcMain.handle('articles:get', async (_, accountId, articleId) => {
     return {
       id: articleId,
       title,
-      content,
+      body: content,
       filename,
       status: 'generated',
       created_at: fs.statSync(filePath).birthtime.toISOString(),
@@ -290,7 +290,7 @@ ipcMain.handle('articles:update', async (_, accountId, article) => {
     const filename = article.filename || (article.id.endsWith('.md') ? article.id : `${article.id}.md`);
     const filePath = path.join(dir, filename);
     if (!fs.existsSync(filePath)) return { error: '記事ファイルが見つかりません' };
-    fs.writeFileSync(filePath, article.content, 'utf-8');
+    fs.writeFileSync(filePath, article.body || article.content || '', 'utf-8');
     return { success: true };
   } catch (e) {
     return { error: e.message };

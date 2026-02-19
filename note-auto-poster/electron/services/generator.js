@@ -96,7 +96,7 @@ class Generator {
           topicId,
           title,
           theme: topic.theme,
-          content: articleText,
+          body: articleText,
           articlePath,
           status: 'generated',
           created_at: new Date().toISOString(),

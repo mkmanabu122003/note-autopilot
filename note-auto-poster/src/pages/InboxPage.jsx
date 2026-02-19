@@ -185,8 +185,13 @@ export default function InboxPage() {
     setSelectedTopic(selectedTopic?.id === topic.id ? null : topic);
   };
 
-  const handleArticleSelect = (article) => {
-    setSelectedArticle(article);
+  const handleArticleSelect = async (article) => {
+    try {
+      const full = await window.electronAPI.articles.get(selectedAccount, article.id);
+      setSelectedArticle(full || article);
+    } catch {
+      setSelectedArticle(article);
+    }
   };
 
   const handleArticleUpdate = () => {
