@@ -7,6 +7,7 @@ const DEFAULT_DATA_DIR = path.join(__dirname, '..', '..', 'data');
 const schema = {
   api: {
     type: 'object',
+    additionalProperties: true,
     properties: {
       anthropic_key: { type: 'string', default: '' },
       web_search_key: { type: 'string', default: '' },
@@ -17,12 +18,23 @@ const schema = {
     },
     default: {},
   },
+  google: {
+    type: 'object',
+    additionalProperties: true,
+    properties: {
+      key_file: { type: 'string', default: '' },
+      client_email: { type: 'string', default: '' },
+    },
+    default: {},
+  },
   accounts: {
     type: 'object',
+    additionalProperties: true,
     default: {},
   },
   scoring: {
     type: 'object',
+    additionalProperties: true,
     properties: {
       auto_approve_threshold: { type: 'number', default: 8 },
       auto_reject_threshold: { type: 'number', default: 4 },
@@ -31,10 +43,21 @@ const schema = {
   },
   article: {
     type: 'object',
+    additionalProperties: true,
     properties: {
       min_length: { type: 'number', default: 1500 },
       max_length: { type: 'number', default: 4000 },
       language: { type: 'string', default: 'ja' },
+    },
+    default: {},
+  },
+  app: {
+    type: 'object',
+    additionalProperties: true,
+    properties: {
+      language: { type: 'string', default: '日本語' },
+      min_chars: { type: 'number', default: 1500 },
+      max_chars: { type: 'number', default: 4000 },
     },
     default: {},
   },
