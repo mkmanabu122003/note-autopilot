@@ -1,2 +1,4 @@
 node_modules/
 dist/
+data/logs/
+data/accounts/*/topics-cache.json
