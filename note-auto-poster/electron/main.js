@@ -4,6 +4,11 @@ const fs = require('fs');
 
 const isDev = !app.isPackaged;
 
+// 開発モードでもビルド版と同じ保存先を使う
+if (isDev) {
+  app.setName('note AutoPoster');
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1200,
