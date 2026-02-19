@@ -9,9 +9,9 @@ const schema = {
     properties: {
       anthropic_key: { type: 'string', default: '' },
       web_search_key: { type: 'string', default: '' },
-      generation_model: { type: 'string', default: 'claude-opus-4-6-20260205' },
+      generation_model: { type: 'string', default: 'claude-sonnet-4-5-20250929' },
       scoring_model: { type: 'string', default: 'claude-haiku-4-5-20251001' },
-      regeneration_model: { type: 'string', default: 'claude-opus-4-6-20260205' },
+      regeneration_model: { type: 'string', default: 'claude-sonnet-4-5-20250929' },
       google_service_account_key_path: { type: 'string', default: '' },
     },
     default: {},
