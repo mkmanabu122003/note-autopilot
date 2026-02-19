@@ -1,9 +1,17 @@
 const { google } = require('googleapis');
+const { app } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
 
-const DEFAULT_DATA_DIR = path.join(__dirname, '..', '..', 'data');
+function getDataDir() {
+  try {
+    return path.join(app.getPath('userData'), 'data');
+  } catch {
+    // Fallback for testing or when app is not ready
+    return path.join(__dirname, '..', '..', 'data');
+  }
+}
 
 // Map common header variations to normalized field names
 const HEADER_ALIASES = {
@@ -87,17 +95,21 @@ class SheetManager {
   }
 
   _getCachePath(accountId) {
-    return path.join(DEFAULT_DATA_DIR, 'accounts', accountId, 'topics-cache.json');
+    return path.join(getDataDir(), 'accounts', accountId, 'topics-cache.json');
   }
 
   _saveCache(accountId, topics) {
-    const cachePath = this._getCachePath(accountId);
-    const cacheDir = path.dirname(cachePath);
-    if (!fs.existsSync(cacheDir)) {
-      fs.mkdirSync(cacheDir, { recursive: true });
+    try {
+      const cachePath = this._getCachePath(accountId);
+      const cacheDir = path.dirname(cachePath);
+      if (!fs.existsSync(cacheDir)) {
+        fs.mkdirSync(cacheDir, { recursive: true });
+      }
+      const data = { topics, cached_at: new Date().toISOString() };
+      fs.writeFileSync(cachePath, JSON.stringify(data, null, 2), 'utf-8');
+    } catch (e) {
+      console.error('[SheetManager] Cache save failed:', e.message);
     }
-    const data = { topics, cached_at: new Date().toISOString() };
-    fs.writeFileSync(cachePath, JSON.stringify(data, null, 2), 'utf-8');
   }
 
   _loadCache(accountId) {
