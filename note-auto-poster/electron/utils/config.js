@@ -1,5 +1,3 @@
-const StoreModule = require('electron-store');
-const Store = StoreModule.default || StoreModule;
 const path = require('path');
 
 const DEFAULT_DATA_DIR = path.join(__dirname, '..', '..', 'data');
@@ -64,21 +62,27 @@ const schema = {
 };
 
 let store = null;
+let storePromise = null;
 
-function getStore() {
-  if (!store) {
-    store = new Store({
-      schema,
-      encryptionKey: 'note-auto-poster-v1',
-      name: 'config',
-    });
+async function getStore() {
+  if (store) return store;
+  if (!storePromise) {
+    storePromise = (async () => {
+      const { default: Store } = await import('electron-store');
+      store = new Store({
+        schema,
+        encryptionKey: 'note-auto-poster-v1',
+        name: 'config',
+      });
+      return store;
+    })();
   }
-  return store;
+  return storePromise;
 }
 
 // Legacy loadConfig for backward compatibility with generator/sheets code
-function loadConfig() {
-  const s = getStore();
+async function loadConfig() {
+  const s = await getStore();
   const api = s.get('api') || {};
   return {
     anthropicApiKey: api.anthropic_key || process.env.ANTHROPIC_API_KEY || '',
@@ -93,17 +97,17 @@ function loadConfig() {
 
 module.exports = {
   loadConfig,
-  getAll: () => getStore().store,
-  get: (key) => getStore().get(key),
-  set: (key, value) => getStore().set(key, value),
-  getAccount: (accountId) => getStore().get(`accounts.${accountId}`),
-  setAccount: (accountId, data) => getStore().set(`accounts.${accountId}`, data),
-  getAccounts: () => getStore().get('accounts') || {},
-  getActiveAccounts: () => {
-    const accounts = getStore().get('accounts') || {};
+  getAll: async () => (await getStore()).store,
+  get: async (key) => (await getStore()).get(key),
+  set: async (key, value) => (await getStore()).set(key, value),
+  getAccount: async (accountId) => (await getStore()).get(`accounts.${accountId}`),
+  setAccount: async (accountId, data) => (await getStore()).set(`accounts.${accountId}`, data),
+  getAccounts: async () => (await getStore()).get('accounts') || {},
+  getActiveAccounts: async () => {
+    const accounts = (await getStore()).get('accounts') || {};
     return Object.entries(accounts)
       .filter(([_, a]) => a.enabled)
       .map(([id, a]) => ({ id, ...a }));
   },
-  _setStoreForTesting: (mockStore) => { store = mockStore; },
+  _setStoreForTesting: (mockStore) => { store = mockStore; storePromise = null; },
 };

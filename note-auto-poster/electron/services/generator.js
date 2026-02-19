@@ -30,7 +30,7 @@ async function generateArticle(client, topic) {
 }
 
 async function generateArticles(accountName = 'tokken', deps = {}) {
-  const config = deps.config || loadConfig();
+  const config = deps.config || await loadConfig();
   const STATUS = sheetsManager.STATUS;
 
   const auth = deps.auth || await sheetsManager.authenticate(config.sheets.credentialsPath);
