@@ -26,8 +26,12 @@ function buildArticlePath(accountId, topic) {
   return path.join(getDataDir(), 'accounts', accountId, 'articles', `${sanitized}_${timestamp}.md`);
 }
 
-async function callClaude(apiKey, model, topic, extra) {
+async function callClaude(apiKey, model, topic, extra, writingGuidelines) {
   const client = new Anthropic({ apiKey });
+  let systemPrompt = SYSTEM_PROMPT;
+  if (writingGuidelines) {
+    systemPrompt += `\n\n## ライティングガイドライン\n以下のガイドラインに必ず従って執筆してください：\n${writingGuidelines}`;
+  }
   let userPrompt = `次のトピックについて記事を書いてください：${topic}`;
   if (extra) {
     userPrompt += `\n\n追加指示：${extra}`;
@@ -35,7 +39,7 @@ async function callClaude(apiKey, model, topic, extra) {
   const message = await client.messages.create({
     model,
     max_tokens: 4096,
-    system: SYSTEM_PROMPT,
+    system: systemPrompt,
     messages: [{ role: 'user', content: userPrompt }],
   });
   return message.content[0].text;
@@ -58,12 +62,13 @@ class Generator {
       // Auto-fix the saved config
       await config.set('api.generation_model', model).catch(() => {});
     }
-    return { apiKey, model };
+    const writingGuidelines = await config.get('article.writing_guidelines') || '';
+    return { apiKey, model, writingGuidelines };
   }
 
   // Immediate: generate a single topic
   async runSingle(accountId, topicId) {
-    const { apiKey, model } = await this._getApiConfig();
+    const { apiKey, model, writingGuidelines } = await this._getApiConfig();
     const topics = await this.sm.readTopics(accountId);
     const topic = topics.find((t) => t.id === topicId);
     if (!topic) throw new Error(`トピックID ${topicId} が見つかりません`);
@@ -72,7 +77,7 @@ class Generator {
     await this.sm.updateTopicStatus(accountId, topicId, 'generating');
 
     try {
-      const articleText = await callClaude(apiKey, model, topic.theme, topic.additional_instructions);
+      const articleText = await callClaude(apiKey, model, topic.theme, topic.additional_instructions, writingGuidelines);
 
       // Save article
       const articlePath = buildArticlePath(accountId, topic.theme);
@@ -110,7 +115,7 @@ class Generator {
 
   // Batch: generate all pending topics
   async run(accountId) {
-    const { apiKey, model } = await this._getApiConfig();
+    const { apiKey, model, writingGuidelines } = await this._getApiConfig();
     const topics = await this.sm.readTopics(accountId);
     const pending = topics.filter((t) => (t.status || 'pending') === 'pending');
 
@@ -123,7 +128,7 @@ class Generator {
       try {
         await this.sm.updateTopicStatus(accountId, topic.id, 'generating');
 
-        const articleText = await callClaude(apiKey, model, topic.theme, topic.additional_instructions);
+        const articleText = await callClaude(apiKey, model, topic.theme, topic.additional_instructions, writingGuidelines);
 
         const articlePath = buildArticlePath(accountId, topic.theme);
         const articleDir = path.dirname(articlePath);

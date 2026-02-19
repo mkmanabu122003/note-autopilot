@@ -75,8 +75,9 @@ describe('SettingsPage', () => {
       expect(screen.getByText('API設定')).toBeInTheDocument();
     });
 
-    const saveButton = screen.getByRole('button', { name: '保存' });
-    await user.click(saveButton);
+    // First "保存" button is in the API key section
+    const saveButtons = screen.getAllByRole('button', { name: '保存' });
+    await user.click(saveButtons[0]);
 
     await waitFor(() => {
       expect(mockElectronAPI.config.set).toHaveBeenCalledWith(
@@ -142,11 +143,18 @@ describe('SettingsPage', () => {
       expect(screen.getByText('API設定')).toBeInTheDocument();
     });
 
-    const saveButton = screen.getByRole('button', { name: '保存' });
-    await user.click(saveButton);
+    const saveButtons = screen.getAllByRole('button', { name: '保存' });
+    await user.click(saveButtons[0]);
 
     await waitFor(() => {
       expect(screen.getByText('保存しました')).toBeInTheDocument();
+    });
+  });
+
+  it('ライティングガイドラインセクションが表示される', async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText('ライティングガイドライン')).toBeInTheDocument();
     });
   });
 });

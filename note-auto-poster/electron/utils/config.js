@@ -46,6 +46,7 @@ const schema = {
       min_length: { type: 'number', default: 1500 },
       max_length: { type: 'number', default: 4000 },
       language: { type: 'string', default: 'ja' },
+      writing_guidelines: { type: 'string', default: '' },
     },
     default: {},
   },
