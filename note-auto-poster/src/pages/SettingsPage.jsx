@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import ApiKeySection from '../components/settings/ApiKeySection';
 import GoogleSheetsSection from '../components/settings/GoogleSheetsSection';
 import AppSettingsSection from '../components/settings/AppSettingsSection';
+import WritingGuidelinesSection from '../components/settings/WritingGuidelinesSection';
 
 export default function SettingsPage() {
   const [config, setConfig] = useState(null);
@@ -37,6 +38,7 @@ export default function SettingsPage() {
       <div className="space-y-6">
         <ApiKeySection config={config} onConfigChange={loadConfig} />
         <GoogleSheetsSection config={config} onConfigChange={loadConfig} />
+        <WritingGuidelinesSection config={config} onConfigChange={loadConfig} />
         <AppSettingsSection config={config} onConfigChange={loadConfig} />
       </div>
     </div>

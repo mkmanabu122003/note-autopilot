@@ -29,13 +29,14 @@ function MarkdownPreview({ body }) {
   );
 }
 
-export default function ArticlePreview({ article, accountId, onUpdate, onClose }) {
+export default function ArticlePreview({ article, accountId, onUpdate, onClose, onRegenerate, regenerating }) {
   const { showToast } = useToast();
   const [tab, setTab] = useState('preview');
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleValue, setTitleValue] = useState(article.title);
   const [bodyValue, setBodyValue] = useState(article.body || '');
   const [saving, setSaving] = useState(false);
+  const [rejected, setRejected] = useState(article.status === 'rejected');
 
   const handleTitleSave = async () => {
     setEditingTitle(false);
@@ -75,6 +76,11 @@ export default function ArticlePreview({ article, accountId, onUpdate, onClose }
       if (newStatus === 'reviewed') updates.reviewed_at = now;
       await window.electronAPI.articles.update(accountId, updates);
       await window.electronAPI.topics.updateStatus(accountId, article.id, newStatus);
+      if (newStatus === 'rejected') {
+        setRejected(true);
+      } else {
+        setRejected(false);
+      }
       showToast(
         newStatus === 'reviewed' ? '記事を承認しました' : '記事を却下しました',
         'success'
@@ -85,9 +91,13 @@ export default function ArticlePreview({ article, accountId, onUpdate, onClose }
     }
   };
 
+  const handleEditClick = () => {
+    setTab('markdown');
+  };
+
   const tabs = [
     { id: 'preview', label: 'プレビュー' },
-    { id: 'markdown', label: 'Markdown' },
+    { id: 'markdown', label: '編集' },
     { id: 'meta', label: 'メタ情報' },
   ];
 
@@ -171,9 +181,43 @@ export default function ArticlePreview({ article, accountId, onUpdate, onClose }
         ))}
       </div>
 
+      {/* Rejected banner */}
+      {rejected && (
+        <div className="px-4 py-3 bg-amber-50 border-b border-amber-200">
+          <p className="text-sm text-amber-800 font-medium mb-2">この記事は却下されました。次のアクションを選択してください：</p>
+          <div className="flex gap-2">
+            <button
+              onClick={handleEditClick}
+              className="flex-1 px-3 py-1.5 text-sm rounded bg-blue-600 text-white hover:bg-blue-700"
+            >
+              編集して修正
+            </button>
+            <button
+              onClick={() => onRegenerate?.(article)}
+              disabled={regenerating}
+              className="flex-1 px-3 py-1.5 text-sm rounded bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
+            >
+              {regenerating ? '再生成中...' : '再生成する'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Tab Content */}
       <div className="flex-1 overflow-y-auto p-4">
-        {tab === 'preview' && <MarkdownPreview body={article.body} />}
+        {tab === 'preview' && (
+          <div>
+            <MarkdownPreview body={article.body} />
+            {article.body && !rejected && (
+              <button
+                onClick={handleEditClick}
+                className="mt-4 px-3 py-1.5 text-sm rounded border border-gray-300 text-gray-600 hover:bg-gray-50"
+              >
+                本文を編集する
+              </button>
+            )}
+          </div>
+        )}
 
         {tab === 'markdown' && (
           <div className="flex flex-col h-full gap-2">
@@ -182,13 +226,21 @@ export default function ArticlePreview({ article, accountId, onUpdate, onClose }
               onChange={(e) => setBodyValue(e.target.value)}
               className="flex-1 w-full border border-gray-300 rounded p-2 text-sm font-mono resize-none min-h-[300px]"
             />
-            <button
-              onClick={handleBodySave}
-              disabled={saving}
-              className="self-end px-3 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
-            >
-              {saving ? '保存中...' : '本文を保存'}
-            </button>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setTab('preview')}
+                className="px-3 py-1 text-sm rounded border border-gray-300 text-gray-600 hover:bg-gray-50"
+              >
+                プレビューで確認
+              </button>
+              <button
+                onClick={handleBodySave}
+                disabled={saving}
+                className="px-3 py-1 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {saving ? '保存中...' : '保存'}
+              </button>
+            </div>
           </div>
         )}
 
@@ -216,18 +268,44 @@ export default function ArticlePreview({ article, accountId, onUpdate, onClose }
 
       {/* Actions */}
       <div className="flex gap-2 px-4 py-3 border-t border-gray-200">
-        <button
-          onClick={() => handleStatusChange('reviewed')}
-          className="flex-1 px-3 py-2 text-sm rounded bg-green-600 text-white hover:bg-green-700"
-        >
-          承認
-        </button>
-        <button
-          onClick={() => handleStatusChange('rejected')}
-          className="flex-1 px-3 py-2 text-sm rounded bg-red-50 text-red-600 border border-red-200 hover:bg-red-100"
-        >
-          却下
-        </button>
+        {rejected ? (
+          <>
+            <button
+              onClick={() => handleStatusChange('reviewed')}
+              className="flex-1 px-3 py-2 text-sm rounded bg-green-600 text-white hover:bg-green-700"
+            >
+              承認に変更
+            </button>
+            <button
+              onClick={() => onRegenerate?.(article)}
+              disabled={regenerating}
+              className="flex-1 px-3 py-2 text-sm rounded bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
+            >
+              {regenerating ? '再生成中...' : '再生成'}
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={() => handleStatusChange('reviewed')}
+              className="flex-1 px-3 py-2 text-sm rounded bg-green-600 text-white hover:bg-green-700"
+            >
+              承認
+            </button>
+            <button
+              onClick={handleEditClick}
+              className="flex-1 px-3 py-2 text-sm rounded bg-gray-100 text-gray-700 border border-gray-300 hover:bg-gray-200"
+            >
+              編集
+            </button>
+            <button
+              onClick={() => handleStatusChange('rejected')}
+              className="flex-1 px-3 py-2 text-sm rounded bg-red-50 text-red-600 border border-red-200 hover:bg-red-100"
+            >
+              却下
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
