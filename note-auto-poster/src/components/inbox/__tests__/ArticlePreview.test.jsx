@@ -100,15 +100,17 @@ describe('ArticlePreview', () => {
     });
   });
 
-  it('タブ切り替え（プレビュー/Markdown/メタ情報）が動作する', async () => {
+  it('タブ切り替え（プレビュー/編集/メタ情報）が動作する', async () => {
     const user = userEvent.setup();
     renderPreview();
 
     // Initially on preview tab
     expect(screen.getByText('はじめに')).toBeInTheDocument();
 
-    // Switch to Markdown tab
-    await user.click(screen.getByRole('button', { name: 'Markdown' }));
+    // Switch to edit tab (renamed from Markdown to 編集)
+    // Use getAllByRole because bottom action bar also has a button named 編集
+    const editTabs = screen.getAllByRole('button', { name: '編集' });
+    await user.click(editTabs[0]); // tab button
     const textarea = screen.getByRole('textbox');
     expect(textarea).toBeInTheDocument();
     expect(textarea.value).toContain('## はじめに');
@@ -122,19 +124,20 @@ describe('ArticlePreview', () => {
     expect(screen.getByText(/msgbatch_013Zva/)).toBeInTheDocument();
   });
 
-  it('Markdownタブで編集→保存が機能する', async () => {
+  it('編集タブで編集→保存が機能する', async () => {
     const user = userEvent.setup();
     const onUpdate = vi.fn();
     renderPreview({ onUpdate });
 
-    // Switch to Markdown tab
-    await user.click(screen.getByRole('button', { name: 'Markdown' }));
+    // Switch to edit tab
+    const editTabs = screen.getAllByRole('button', { name: '編集' });
+    await user.click(editTabs[0]);
 
     const textarea = screen.getByRole('textbox');
     await user.clear(textarea);
     await user.type(textarea, '# 新しい本文');
 
-    await user.click(screen.getByRole('button', { name: '本文を保存' }));
+    await user.click(screen.getByRole('button', { name: '保存' }));
 
     await waitFor(() => {
       expect(mockElectronAPI.articles.update).toHaveBeenCalledWith(
@@ -143,6 +146,20 @@ describe('ArticlePreview', () => {
           body: '# 新しい本文',
         })
       );
+    });
+  });
+
+  it('却下後に編集・再生成の選択肢が表示される', async () => {
+    const user = userEvent.setup();
+    const onRegenerate = vi.fn();
+    renderPreview({ onRegenerate });
+
+    await user.click(screen.getByRole('button', { name: '却下' }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/この記事は却下されました/)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '編集して修正' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: '再生成する' })).toBeInTheDocument();
     });
   });
 

@@ -206,6 +206,35 @@ export default function InboxPage() {
     }
   };
 
+  // Regenerate an article (find its topic and re-run generation)
+  const handleRegenerate = async (article) => {
+    if (!selectedAccount) return;
+    setGeneratingSingle(true);
+    try {
+      // Try to find the matching topic by topicId or by theme
+      const topicId = article.topicId;
+      if (topicId) {
+        const result = await window.electronAPI.generator.runSingle(selectedAccount, topicId);
+        if (result.error) {
+          showToast('再生成エラー: ' + result.error, 'error');
+        } else {
+          showToast('記事を再生成しました', 'success');
+          setSelectedArticle(result.article);
+        }
+      } else {
+        // No topicId — switch to topics view so user can pick the topic
+        showToast('テーマビューからテーマを選んで「即時生成」してください', 'info');
+        setView('topics');
+        setSelectedArticle(null);
+      }
+      loadData();
+    } catch (e) {
+      showToast('再生成に失敗しました: ' + (e.message || ''), 'error');
+    } finally {
+      setGeneratingSingle(false);
+    }
+  };
+
   const pillars = accountData?.pillars || [];
   const accountDisplayName =
     accounts.find((a) => a.id === selectedAccount)?.display_name || selectedAccount;
@@ -314,6 +343,8 @@ export default function InboxPage() {
             accountId={selectedAccount}
             onUpdate={handleArticleUpdate}
             onClose={() => setSelectedArticle(null)}
+            onRegenerate={handleRegenerate}
+            regenerating={generatingSingle}
           />
         )}
 
