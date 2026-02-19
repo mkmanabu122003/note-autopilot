@@ -151,7 +151,8 @@ ipcMain.handle('topics:list', async (_, accountId) => {
     const sm = new SheetManager();
     return await sm.readTopics(accountId);
   } catch (e) {
-    return [];
+    console.error('[topics:list] Error:', e.message);
+    return { error: e.message, topics: [] };
   }
 });
 
