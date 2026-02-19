@@ -204,6 +204,18 @@ ipcMain.handle('generator:run', async (_, accountId) => {
     const gen = new Generator();
     return await gen.run(accountId);
   } catch (e) {
+    console.error('[generator:run] Error:', e.message);
+    return { error: e.message };
+  }
+});
+
+ipcMain.handle('generator:runSingle', async (_, accountId, topicId) => {
+  try {
+    const { Generator } = require('./services/generator');
+    const gen = new Generator();
+    return await gen.runSingle(accountId, topicId);
+  } catch (e) {
+    console.error('[generator:runSingle] Error:', e.message);
     return { error: e.message };
   }
 });
@@ -218,22 +230,55 @@ ipcMain.handle('generator:status', async (_, batchId) => {
   }
 });
 
-// Article handlers
+// Article handlers — read .md files from userData/data/accounts/{id}/articles/
+function getArticlesDir(accountId) {
+  try {
+    return path.join(app.getPath('userData'), 'data', 'accounts', accountId, 'articles');
+  } catch {
+    return path.join(__dirname, '..', 'data', 'accounts', accountId, 'articles');
+  }
+}
+
 ipcMain.handle('articles:list', async (_, accountId) => {
   try {
-    const { ArticleManager } = require('./services/account-manager');
-    const am = new ArticleManager();
-    return await am.list(accountId);
+    const dir = getArticlesDir(accountId);
+    if (!fs.existsSync(dir)) return [];
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith('.md')).sort().reverse();
+    return files.map((f) => {
+      const content = fs.readFileSync(path.join(dir, f), 'utf-8');
+      const lines = content.split('\n');
+      const title = (lines[0] || '').replace(/^#+\s*/, '').trim() || f;
+      return {
+        id: f.replace('.md', ''),
+        title,
+        filename: f,
+        status: 'generated',
+        created_at: fs.statSync(path.join(dir, f)).birthtime.toISOString(),
+      };
+    });
   } catch (e) {
+    console.error('[articles:list] Error:', e.message);
     return [];
   }
 });
 
 ipcMain.handle('articles:get', async (_, accountId, articleId) => {
   try {
-    const { ArticleManager } = require('./services/account-manager');
-    const am = new ArticleManager();
-    return await am.get(accountId, articleId);
+    const dir = getArticlesDir(accountId);
+    const filename = articleId.endsWith('.md') ? articleId : `${articleId}.md`;
+    const filePath = path.join(dir, filename);
+    if (!fs.existsSync(filePath)) return null;
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const lines = content.split('\n');
+    const title = (lines[0] || '').replace(/^#+\s*/, '').trim();
+    return {
+      id: articleId,
+      title,
+      content,
+      filename,
+      status: 'generated',
+      created_at: fs.statSync(filePath).birthtime.toISOString(),
+    };
   } catch (e) {
     return null;
   }
@@ -241,9 +286,12 @@ ipcMain.handle('articles:get', async (_, accountId, articleId) => {
 
 ipcMain.handle('articles:update', async (_, accountId, article) => {
   try {
-    const { ArticleManager } = require('./services/account-manager');
-    const am = new ArticleManager();
-    return await am.update(accountId, article);
+    const dir = getArticlesDir(accountId);
+    const filename = article.filename || (article.id.endsWith('.md') ? article.id : `${article.id}.md`);
+    const filePath = path.join(dir, filename);
+    if (!fs.existsSync(filePath)) return { error: '記事ファイルが見つかりません' };
+    fs.writeFileSync(filePath, article.content, 'utf-8');
+    return { success: true };
   } catch (e) {
     return { error: e.message };
   }

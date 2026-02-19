@@ -5,7 +5,7 @@ const STATUS_COLORS = {
   error: 'bg-red-200 text-red-700',
 };
 
-export default function TopicList({ topics }) {
+export default function TopicList({ topics, selectedId, onSelect }) {
   if (topics.length === 0) {
     return (
       <p className="text-gray-400 text-sm p-4">テーマがありません</p>
@@ -17,7 +17,12 @@ export default function TopicList({ topics }) {
       {topics.map((topic) => (
         <div
           key={topic.id}
-          className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50"
+          onClick={() => onSelect?.(topic)}
+          className={`flex items-center gap-2 px-3 py-2 text-sm cursor-pointer transition-colors ${
+            selectedId === topic.id
+              ? 'bg-blue-50 border-l-2 border-blue-500'
+              : 'hover:bg-gray-50 border-l-2 border-transparent'
+          }`}
         >
           <span className="w-8 text-gray-400 text-xs text-right shrink-0">
             {topic.id}

@@ -20,10 +20,12 @@ export default function InboxPage() {
 
   const [topics, setTopics] = useState([]);
   const [articles, setArticles] = useState([]);
+  const [selectedTopic, setSelectedTopic] = useState(null);
   const [selectedArticle, setSelectedArticle] = useState(null);
   const [loadError, setLoadError] = useState('');
 
   const [generating, setGenerating] = useState(false);
+  const [generatingSingle, setGeneratingSingle] = useState(false);
   const [batchId, setBatchId] = useState(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
@@ -68,7 +70,6 @@ export default function InboxPage() {
     try {
       if (view === 'topics') {
         const data = await window.electronAPI.topics.list(selectedAccount);
-        // Handle error response from main process
         if (data && data.error) {
           setLoadError(data.error);
           setTopics(data.topics || []);
@@ -115,6 +116,31 @@ export default function InboxPage() {
     return true;
   });
 
+  // Immediate single-topic generation
+  const handleGenerateSingle = async () => {
+    if (!selectedTopic || !selectedAccount) return;
+    setGeneratingSingle(true);
+    try {
+      const result = await window.electronAPI.generator.runSingle(selectedAccount, selectedTopic.id);
+      if (result.error) {
+        showToast('生成エラー: ' + result.error, 'error');
+        setGeneratingSingle(false);
+        loadData();
+        return;
+      }
+      showToast('記事が生成されました', 'success');
+      // Show generated article in preview
+      setSelectedArticle(result.article);
+      setView('articles');
+      setSelectedTopic(null);
+      loadData();
+    } catch (e) {
+      showToast('生成に失敗しました: ' + (e.message || ''), 'error');
+    } finally {
+      setGeneratingSingle(false);
+    }
+  };
+
   // Batch generation
   const handleGenerateClick = async () => {
     const pending = topics.filter((t) => (t.status || 'pending') === 'pending');
@@ -130,19 +156,17 @@ export default function InboxPage() {
       if (result.error) {
         showToast('生成エラー: ' + result.error, 'error');
         setGenerating(false);
+        loadData();
         return;
       }
       if (result.batchId) {
         setBatchId(result.batchId);
       }
-      showToast(`${result.articles?.length || 0}件の記事が生成されました`, 'success');
+      showToast(`${result.generated || 0}件の記事が生成されました（エラー: ${result.errors || 0}件）`, 'success');
       setGenerating(false);
       setBatchId(null);
-      // Switch to article view after generation
-      setTimeout(() => {
-        setView('articles');
-        loadData();
-      }, 3000);
+      setView('articles');
+      loadData();
     } catch (e) {
       showToast('生成に失敗しました', 'error');
       setGenerating(false);
@@ -153,10 +177,12 @@ export default function InboxPage() {
     setGenerating(false);
     setBatchId(null);
     showToast('バッチ生成が完了しました', 'success');
-    setTimeout(() => {
-      setView('articles');
-      loadData();
-    }, 3000);
+    setView('articles');
+    loadData();
+  };
+
+  const handleTopicSelect = (topic) => {
+    setSelectedTopic(selectedTopic?.id === topic.id ? null : topic);
   };
 
   const handleArticleSelect = (article) => {
@@ -165,7 +191,6 @@ export default function InboxPage() {
 
   const handleArticleUpdate = () => {
     loadData();
-    // Refresh the selected article
     if (selectedArticle) {
       window.electronAPI.articles
         .get(selectedAccount, selectedArticle.id)
@@ -218,11 +243,20 @@ export default function InboxPage() {
             <div className="p-3 border-b border-gray-200 flex items-center gap-2">
               <button
                 onClick={handleGenerateClick}
-                disabled={generating || !selectedAccount}
+                disabled={generating || generatingSingle || !selectedAccount}
                 className="px-3 py-1.5 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
               >
-                {generating ? '生成中...' : 'バッチ生成を実行'}
+                {generating ? '生成中...' : 'バッチ生成'}
               </button>
+              {selectedTopic && (
+                <button
+                  onClick={handleGenerateSingle}
+                  disabled={generating || generatingSingle}
+                  className="px-3 py-1.5 text-sm rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+                >
+                  {generatingSingle ? '生成中...' : `「${selectedTopic.theme?.substring(0, 20) || ''}...」を即時生成`}
+                </button>
+              )}
             </div>
           )}
 
@@ -236,6 +270,13 @@ export default function InboxPage() {
             </div>
           )}
 
+          {/* Generating single indicator */}
+          {generatingSingle && (
+            <div className="mx-3 mt-2 p-3 bg-blue-50 border border-blue-200 rounded text-sm text-blue-700">
+              「{selectedTopic?.theme}」の記事を生成中... しばらくお待ちください。
+            </div>
+          )}
+
           {/* Error message */}
           {loadError && (
             <div className="mx-3 mt-2 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">
@@ -246,7 +287,11 @@ export default function InboxPage() {
           {/* Content */}
           <div>
             {view === 'topics' ? (
-              <TopicList topics={filteredTopics} />
+              <TopicList
+                topics={filteredTopics}
+                selectedId={selectedTopic?.id}
+                onSelect={handleTopicSelect}
+              />
             ) : (
               <ArticleList
                 articles={filteredArticles}
@@ -266,12 +311,74 @@ export default function InboxPage() {
             onClose={() => setSelectedArticle(null)}
           />
         )}
+
+        {/* Right: Topic detail panel */}
+        {selectedTopic && view === 'topics' && (
+          <div className="w-[350px] shrink-0 border-l border-gray-200 bg-white p-4 overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-gray-800">テーマ詳細</h3>
+              <button
+                onClick={() => setSelectedTopic(null)}
+                className="text-gray-400 hover:text-gray-600 text-lg"
+              >
+                &times;
+              </button>
+            </div>
+            <div className="space-y-3 text-sm">
+              <div>
+                <span className="text-gray-500">ID:</span>
+                <span className="ml-2 text-gray-800">{selectedTopic.id}</span>
+              </div>
+              <div>
+                <span className="text-gray-500">テーマ:</span>
+                <p className="mt-1 text-gray-800">{selectedTopic.theme}</p>
+              </div>
+              {selectedTopic.keywords && (
+                <div>
+                  <span className="text-gray-500">キーワード:</span>
+                  <p className="mt-1 text-gray-800">{selectedTopic.keywords}</p>
+                </div>
+              )}
+              {selectedTopic.additional_instructions && (
+                <div>
+                  <span className="text-gray-500">追加指示:</span>
+                  <p className="mt-1 text-gray-800">{selectedTopic.additional_instructions}</p>
+                </div>
+              )}
+              {selectedTopic.pillar && (
+                <div>
+                  <span className="text-gray-500">柱:</span>
+                  <span className="ml-2 text-gray-800">{selectedTopic.pillar}</span>
+                </div>
+              )}
+              <div>
+                <span className="text-gray-500">ステータス:</span>
+                <span className="ml-2 text-gray-800">{selectedTopic.status || 'pending'}</span>
+              </div>
+              {selectedTopic.is_paid && (
+                <div>
+                  <span className="text-gray-500">有料:</span>
+                  <span className="ml-2 text-gray-800">{selectedTopic.price}円</span>
+                </div>
+              )}
+              <div className="pt-3 border-t border-gray-200">
+                <button
+                  onClick={handleGenerateSingle}
+                  disabled={generating || generatingSingle || (selectedTopic.status !== 'pending' && selectedTopic.status !== 'error' && selectedTopic.status !== '')}
+                  className="w-full px-3 py-2 text-sm rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+                >
+                  {generatingSingle ? '生成中...' : 'このテーマで記事を即時生成'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <ConfirmDialog
         open={showConfirm}
         title="バッチ生成を開始"
-        message={`${accountDisplayName} のpendingテーマ ${pendingCount}件 でバッチ生成を開始しますか？\n※ Batch APIのため完了まで最大24時間かかります`}
+        message={`${accountDisplayName} のpendingテーマ ${pendingCount}件 でバッチ生成を開始しますか？`}
         confirmText="生成開始"
         onConfirm={handleGenerate}
         onCancel={() => setShowConfirm(false)}

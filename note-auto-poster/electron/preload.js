@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   generator: {
     run: (accountId) => ipcRenderer.invoke('generator:run', accountId),
+    runSingle: (accountId, topicId) => ipcRenderer.invoke('generator:runSingle', accountId, topicId),
     status: (batchId) => ipcRenderer.invoke('generator:status', batchId),
   },
   articles: {
