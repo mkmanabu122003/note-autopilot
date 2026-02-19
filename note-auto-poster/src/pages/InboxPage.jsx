@@ -21,6 +21,7 @@ export default function InboxPage() {
   const [topics, setTopics] = useState([]);
   const [articles, setArticles] = useState([]);
   const [selectedArticle, setSelectedArticle] = useState(null);
+  const [loadError, setLoadError] = useState('');
 
   const [generating, setGenerating] = useState(false);
   const [batchId, setBatchId] = useState(null);
@@ -63,15 +64,23 @@ export default function InboxPage() {
   // Load data when account or view changes
   const loadData = useCallback(async () => {
     if (!selectedAccount) return;
+    setLoadError('');
     try {
       if (view === 'topics') {
         const data = await window.electronAPI.topics.list(selectedAccount);
-        setTopics(data || []);
+        // Handle error response from main process
+        if (data && data.error) {
+          setLoadError(data.error);
+          setTopics(data.topics || []);
+        } else {
+          setTopics(Array.isArray(data) ? data : []);
+        }
       } else {
         const data = await window.electronAPI.articles.list(selectedAccount);
         setArticles(data || []);
       }
-    } catch {
+    } catch (e) {
+      setLoadError(e.message || 'データの読み込みに失敗しました');
       if (view === 'topics') setTopics([]);
       else setArticles([]);
     }
@@ -195,8 +204,17 @@ export default function InboxPage() {
 
         {/* Center: List */}
         <div className="flex-1 overflow-y-auto">
+          {/* No account selected */}
+          {!selectedAccount && (
+            <div className="p-6 text-center text-gray-400 text-sm">
+              {accounts.length === 0
+                ? 'アカウントが見つかりません。アカウント管理ページで有効なアカウントを設定してください。'
+                : '左のパネルからアカウントを選択してください。'}
+            </div>
+          )}
+
           {/* Generation controls */}
-          {view === 'topics' && (
+          {view === 'topics' && selectedAccount && (
             <div className="p-3 border-b border-gray-200 flex items-center gap-2">
               <button
                 onClick={handleGenerateClick}
@@ -215,6 +233,13 @@ export default function InboxPage() {
                 batchId={batchId}
                 onComplete={handleGenerationComplete}
               />
+            </div>
+          )}
+
+          {/* Error message */}
+          {loadError && (
+            <div className="mx-3 mt-2 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+              <span className="font-bold">エラー: </span>{loadError}
             </div>
           )}
 
