@@ -56,8 +56,8 @@ ipcMain.handle('sheets:testConnection', async (_, accountId) => {
 // Config handlers
 ipcMain.handle('config:getAll', async () => {
   try {
-    const { getConfig } = require('./utils/config');
-    return await getConfig();
+    const config = require('./utils/config');
+    return config.getAll();
   } catch (e) {
     return {};
   }
@@ -65,8 +65,8 @@ ipcMain.handle('config:getAll', async () => {
 
 ipcMain.handle('config:get', async (_, key) => {
   try {
-    const { getConfigValue } = require('./utils/config');
-    return await getConfigValue(key);
+    const config = require('./utils/config');
+    return config.get(key);
   } catch (e) {
     return null;
   }
@@ -74,8 +74,8 @@ ipcMain.handle('config:get', async (_, key) => {
 
 ipcMain.handle('config:set', async (_, key, value) => {
   try {
-    const { setConfigValue } = require('./utils/config');
-    await setConfigValue(key, value);
+    const config = require('./utils/config');
+    config.set(key, value);
   } catch (e) {
     throw new Error(e.message);
   }
@@ -84,9 +84,8 @@ ipcMain.handle('config:set', async (_, key, value) => {
 // Account handlers
 ipcMain.handle('accounts:list', async () => {
   try {
-    const { AccountManager } = require('./services/account-manager');
-    const am = new AccountManager();
-    return await am.list();
+    const config = require('./utils/config');
+    return config.getAccounts();
   } catch (e) {
     return {};
   }
@@ -94,9 +93,8 @@ ipcMain.handle('accounts:list', async () => {
 
 ipcMain.handle('accounts:listActive', async () => {
   try {
-    const { AccountManager } = require('./services/account-manager');
-    const am = new AccountManager();
-    return await am.listActive();
+    const config = require('./utils/config');
+    return config.getActiveAccounts();
   } catch (e) {
     return [];
   }
@@ -104,9 +102,8 @@ ipcMain.handle('accounts:listActive', async () => {
 
 ipcMain.handle('accounts:get', async (_, id) => {
   try {
-    const { AccountManager } = require('./services/account-manager');
-    const am = new AccountManager();
-    return await am.get(id);
+    const config = require('./utils/config');
+    return config.getAccount(id);
   } catch (e) {
     return null;
   }
@@ -114,9 +111,8 @@ ipcMain.handle('accounts:get', async (_, id) => {
 
 ipcMain.handle('accounts:set', async (_, id, data) => {
   try {
-    const { AccountManager } = require('./services/account-manager');
-    const am = new AccountManager();
-    await am.set(id, data);
+    const config = require('./utils/config');
+    config.setAccount(id, data);
   } catch (e) {
     throw new Error(e.message);
   }

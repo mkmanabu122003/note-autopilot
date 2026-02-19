@@ -3,14 +3,17 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ToastProvider } from '../../hooks/useToast';
+import { AccountProvider } from '../../contexts/AccountContext';
 import SettingsPage from '../SettingsPage';
 
 function renderPage() {
   return render(
     <MemoryRouter>
-      <ToastProvider>
-        <SettingsPage />
-      </ToastProvider>
+      <AccountProvider>
+        <ToastProvider>
+          <SettingsPage />
+        </ToastProvider>
+      </AccountProvider>
     </MemoryRouter>
   );
 }
@@ -28,7 +31,10 @@ const mockElectronAPI = {
     readKeyFile: vi.fn(),
   },
   accounts: {
-    listActive: vi.fn(),
+    list: vi.fn().mockResolvedValue({}),
+    listActive: vi.fn().mockResolvedValue([]),
+    get: vi.fn().mockResolvedValue(null),
+    set: vi.fn().mockResolvedValue(undefined),
   },
 };
 
@@ -56,7 +62,6 @@ describe('SettingsPage', () => {
     await waitFor(() => {
       expect(mockElectronAPI.config.getAll).toHaveBeenCalled();
     });
-    // API Key section should be present
     expect(screen.getByText('API設定')).toBeInTheDocument();
     expect(screen.getByText('Google Sheets接続')).toBeInTheDocument();
     expect(screen.getByText('アプリ設定')).toBeInTheDocument();
