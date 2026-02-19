@@ -151,10 +151,10 @@ describe('InboxPage', () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByText('バッチ生成を実行')).toBeInTheDocument();
+      expect(screen.getByText('バッチ生成')).toBeInTheDocument();
     });
 
-    await user.click(screen.getByText('バッチ生成を実行'));
+    await user.click(screen.getByText('バッチ生成'));
 
     await waitFor(() => {
       expect(screen.getByText('バッチ生成を開始')).toBeInTheDocument();

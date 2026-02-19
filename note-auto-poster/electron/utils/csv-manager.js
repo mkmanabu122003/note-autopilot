@@ -1,11 +1,11 @@
 const { google } = require('googleapis');
-const { app } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const config = require('./config');
 
 function getDataDir() {
   try {
+    const { app } = require('electron');
     return path.join(app.getPath('userData'), 'data');
   } catch {
     // Fallback for testing or when app is not ready
