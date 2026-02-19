@@ -33,7 +33,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     openFile: (options) => ipcRenderer.invoke('dialog:openFile', options),
   },
   sheets: {
-    testConnection: (accountId) => ipcRenderer.invoke('sheets:testConnection', accountId),
+    testConnection: (accountId, sheetsData) => ipcRenderer.invoke('sheets:testConnection', accountId, sheetsData),
   },
   google: {
     readKeyFile: (path) => ipcRenderer.invoke('google:readKeyFile', path),

@@ -4,6 +4,11 @@ const fs = require('fs');
 
 const isDev = !app.isPackaged;
 
+// 開発モードでもビルド版と同じ保存先を使う
+if (isDev) {
+  app.setName('note AutoPoster');
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1200,
@@ -42,7 +47,7 @@ ipcMain.handle('google:readKeyFile', async (_, filePath) => {
   }
 });
 
-ipcMain.handle('sheets:testConnection', async (_, accountId) => {
+ipcMain.handle('sheets:testConnection', async (_, accountId, sheetsData) => {
   try {
     const config = require('./utils/config');
     const { google } = require('googleapis');
@@ -51,7 +56,9 @@ ipcMain.handle('sheets:testConnection', async (_, accountId) => {
       return { success: false, error: 'サービスアカウントキーファイルが見つかりません' };
     }
     const account = await config.getAccount(accountId);
-    if (!account?.sheets?.spreadsheet_id) {
+    const spreadsheetId = sheetsData?.spreadsheet_id || account?.sheets?.spreadsheet_id;
+    const sheetName = sheetsData?.sheet_name || account?.sheets?.sheet_name || 'topics';
+    if (!spreadsheetId) {
       return { success: false, error: 'スプレッドシートIDが設定されていません' };
     }
     const auth = new google.auth.GoogleAuth({
@@ -60,8 +67,8 @@ ipcMain.handle('sheets:testConnection', async (_, accountId) => {
     });
     const sheets = google.sheets({ version: 'v4', auth });
     const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: account.sheets.spreadsheet_id,
-      range: `${account.sheets.sheet_name || 'topics'}!A1:J1`,
+      spreadsheetId,
+      range: `${sheetName}!A1:J1`,
     });
     const headers = res.data.values?.[0] || [];
     return { success: true, headers };

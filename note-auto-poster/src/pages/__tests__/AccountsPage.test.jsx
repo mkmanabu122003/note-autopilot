@@ -138,7 +138,10 @@ describe('AccountsPage', () => {
     await user.click(testButton);
 
     await waitFor(() => {
-      expect(mockElectronAPI.sheets.testConnection).toHaveBeenCalledWith('tokken');
+      expect(mockElectronAPI.sheets.testConnection).toHaveBeenCalledWith('tokken', {
+        spreadsheet_id: '1abc',
+        sheet_name: 'topics',
+      });
     });
 
     await waitFor(() => {
