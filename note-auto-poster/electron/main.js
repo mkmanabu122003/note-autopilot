@@ -68,10 +68,12 @@ ipcMain.handle('sheets:testConnection', async (_, accountId, sheetsData) => {
     const sheets = google.sheets({ version: 'v4', auth });
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: `${sheetName}!A1:J1`,
+      range: `${sheetName}!A1:J`,
     });
-    const headers = res.data.values?.[0] || [];
-    return { success: true, headers };
+    const rows = res.data.values || [];
+    const headers = rows[0] || [];
+    const count = Math.max(0, rows.length - 1);
+    return { success: true, headers, count };
   } catch (error) {
     return { success: false, error: error.message };
   }
