@@ -50,4 +50,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setupWorkflow: () => ipcRenderer.invoke('github:setupWorkflow'),
     status: () => ipcRenderer.invoke('github:status'),
   },
+  thumbnails: {
+    generate: (accountId, article) => ipcRenderer.invoke('thumbnails:generate', accountId, article),
+    list: (accountId, articleId) => ipcRenderer.invoke('thumbnails:list', accountId, articleId),
+    select: (accountId, articleId, pattern) => ipcRenderer.invoke('thumbnails:select', accountId, articleId, pattern),
+    readAsBase64: (filePath) => ipcRenderer.invoke('thumbnails:readAsBase64', filePath),
+  },
 });
