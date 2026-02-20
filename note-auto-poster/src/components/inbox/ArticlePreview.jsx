@@ -37,6 +37,14 @@ export default function ArticlePreview({ article, accountId, onUpdate, onClose, 
   const [bodyValue, setBodyValue] = useState(article.body || '');
   const [saving, setSaving] = useState(false);
   const [rejected, setRejected] = useState(article.status === 'rejected');
+  const [showRegenerateForm, setShowRegenerateForm] = useState(false);
+  const [regenerateInstructions, setRegenerateInstructions] = useState('');
+
+  const handleRegenerateWithInstructions = () => {
+    onRegenerate?.(article, regenerateInstructions);
+    setShowRegenerateForm(false);
+    setRegenerateInstructions('');
+  };
 
   const handleTitleSave = async () => {
     setEditingTitle(false);
@@ -193,13 +201,38 @@ export default function ArticlePreview({ article, accountId, onUpdate, onClose, 
               編集して修正
             </button>
             <button
-              onClick={() => onRegenerate?.(article)}
+              onClick={() => setShowRegenerateForm(true)}
               disabled={regenerating}
               className="flex-1 px-3 py-1.5 text-sm rounded bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
             >
               {regenerating ? '再生成中...' : '再生成する'}
             </button>
           </div>
+          {showRegenerateForm && (
+            <div className="mt-3 space-y-2">
+              <textarea
+                value={regenerateInstructions}
+                onChange={(e) => setRegenerateInstructions(e.target.value)}
+                placeholder="修正指示を入力してください（例：もっとカジュアルな文体にしてください、具体例を増やしてください）"
+                className="w-full border border-gray-300 rounded p-2 text-sm resize-y min-h-[80px]"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={handleRegenerateWithInstructions}
+                  disabled={regenerating}
+                  className="flex-1 px-3 py-1.5 text-sm rounded bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
+                >
+                  {regenerating ? '再生成中...' : '指示を反映して再生成'}
+                </button>
+                <button
+                  onClick={() => { setShowRegenerateForm(false); setRegenerateInstructions(''); }}
+                  className="px-3 py-1.5 text-sm rounded border border-gray-300 text-gray-600 hover:bg-gray-50"
+                >
+                  キャンセル
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -277,7 +310,7 @@ export default function ArticlePreview({ article, accountId, onUpdate, onClose, 
               承認に変更
             </button>
             <button
-              onClick={() => onRegenerate?.(article)}
+              onClick={() => setShowRegenerateForm(true)}
               disabled={regenerating}
               className="flex-1 px-3 py-2 text-sm rounded bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
             >

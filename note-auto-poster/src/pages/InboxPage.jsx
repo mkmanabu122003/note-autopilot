@@ -207,14 +207,14 @@ export default function InboxPage() {
   };
 
   // Regenerate an article (find its topic and re-run generation)
-  const handleRegenerate = async (article) => {
+  const handleRegenerate = async (article, regenerateInstructions) => {
     if (!selectedAccount) return;
     setGeneratingSingle(true);
     try {
       // Try to find the matching topic by topicId or by theme
       const topicId = article.topicId;
       if (topicId) {
-        const result = await window.electronAPI.generator.runSingle(selectedAccount, topicId);
+        const result = await window.electronAPI.generator.runSingle(selectedAccount, topicId, regenerateInstructions || undefined);
         if (result.error) {
           showToast('再生成エラー: ' + result.error, 'error');
         } else {

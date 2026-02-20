@@ -26,7 +26,7 @@ function buildArticlePath(accountId, topic) {
   return path.join(getDataDir(), 'accounts', accountId, 'articles', `${sanitized}_${timestamp}.md`);
 }
 
-async function callClaude(apiKey, model, topic, extra, writingGuidelines) {
+async function callClaude(apiKey, model, topic, extra, writingGuidelines, regenerateInstructions) {
   const client = new Anthropic({ apiKey });
   let systemPrompt = SYSTEM_PROMPT;
   if (writingGuidelines) {
@@ -35,6 +35,9 @@ async function callClaude(apiKey, model, topic, extra, writingGuidelines) {
   let userPrompt = `次のトピックについて記事を書いてください：${topic}`;
   if (extra) {
     userPrompt += `\n\n追加指示：${extra}`;
+  }
+  if (regenerateInstructions) {
+    userPrompt += `\n\n## 再生成の修正指示\n前回生成した記事に対して以下の修正を反映してください：\n${regenerateInstructions}`;
   }
   const message = await client.messages.create({
     model,
@@ -67,7 +70,7 @@ class Generator {
   }
 
   // Immediate: generate a single topic
-  async runSingle(accountId, topicId) {
+  async runSingle(accountId, topicId, regenerateInstructions) {
     const { apiKey, model, writingGuidelines } = await this._getApiConfig();
     const topics = await this.sm.readTopics(accountId);
     const topic = topics.find((t) => t.id === topicId);
@@ -77,7 +80,7 @@ class Generator {
     await this.sm.updateTopicStatus(accountId, topicId, 'generating');
 
     try {
-      const articleText = await callClaude(apiKey, model, topic.theme, topic.additional_instructions, writingGuidelines);
+      const articleText = await callClaude(apiKey, model, topic.theme, topic.additional_instructions, writingGuidelines, regenerateInstructions);
 
       // Save article
       const articlePath = buildArticlePath(accountId, topic.theme);
