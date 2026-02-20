@@ -304,7 +304,12 @@ ipcMain.handle('articles:update', async (_, accountId, article) => {
         const githubEnabled = await config.get('github.enabled');
         if (githubEnabled) {
           const { githubSync } = require('./utils/github-sync');
-          await githubSync.pushArticle(accountId, filename, article.status);
+          const prMode = await config.get('github.pr_mode');
+          if (prMode) {
+            await githubSync.pushArticleToPR(accountId, filename, article.status);
+          } else {
+            await githubSync.pushArticle(accountId, filename, article.status);
+          }
         }
       } catch (e) {
         console.error('[articles:update] GitHub push failed (non-blocking):', e.message);
@@ -346,10 +351,37 @@ ipcMain.handle('github:pushArticle', async (_, accountId, filename, status, meta
   }
 });
 
+ipcMain.handle('github:pushArticleToPR', async (_, accountId, filename, status, metadata) => {
+  try {
+    const { githubSync } = require('./utils/github-sync');
+    return await githubSync.pushArticleToPR(accountId, filename, status, metadata);
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
 ipcMain.handle('github:pull', async (_, accountId) => {
   try {
     const { githubSync } = require('./utils/github-sync');
     return await githubSync.pull(accountId);
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('github:pullWithConflictResolution', async (_, accountId) => {
+  try {
+    const { githubSync } = require('./utils/github-sync');
+    return await githubSync.pullWithConflictResolution(accountId);
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('github:setupWorkflow', async () => {
+  try {
+    const { githubSync } = require('./utils/github-sync');
+    return await githubSync.setupWorkflow();
   } catch (e) {
     return { success: false, error: e.message };
   }

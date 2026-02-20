@@ -67,6 +67,7 @@ const schema = {
       token: { type: 'string', default: '' },
       repository: { type: 'string', default: '' },
       enabled: { type: 'boolean', default: false },
+      pr_mode: { type: 'boolean', default: false },
     },
     default: {},
   },

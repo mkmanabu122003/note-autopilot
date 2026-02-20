@@ -157,10 +157,13 @@ class Generator {
         const githubEnabled = await config.get('github.enabled');
         if (githubEnabled) {
           const { githubSync } = require('../utils/github-sync');
-          await githubSync.pushArticle(accountId, filename, 'generated', {
-            topic_id: topicId,
-            pillar: topic.pillar || '',
-          });
+          const prMode = await config.get('github.pr_mode');
+          const meta = { topic_id: topicId, pillar: topic.pillar || '' };
+          if (prMode) {
+            await githubSync.pushArticleToPR(accountId, filename, 'generated', meta);
+          } else {
+            await githubSync.pushArticle(accountId, filename, 'generated', meta);
+          }
         }
       } catch (e) {
         console.error('[generator] GitHub push failed (non-blocking):', e.message);
@@ -216,10 +219,14 @@ class Generator {
           const githubEnabled = await config.get('github.enabled');
           if (githubEnabled) {
             const { githubSync } = require('../utils/github-sync');
-            await githubSync.pushArticle(accountId, path.basename(articlePath), 'generated', {
-              topic_id: topic.id,
-              pillar: topic.pillar || '',
-            });
+            const prMode = await config.get('github.pr_mode');
+            const meta = { topic_id: topic.id, pillar: topic.pillar || '' };
+            const fname = path.basename(articlePath);
+            if (prMode) {
+              await githubSync.pushArticleToPR(accountId, fname, 'generated', meta);
+            } else {
+              await githubSync.pushArticle(accountId, fname, 'generated', meta);
+            }
           }
         } catch (e) {
           console.error('[generator:batch] GitHub push failed (non-blocking):', e.message);

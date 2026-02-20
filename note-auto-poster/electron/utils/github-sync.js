@@ -2,7 +2,7 @@
  * GitHub Sync Service
  *
  * Manages bidirectional sync between local articles and a GitHub repository.
- * Uses simple-git for git operations.
+ * Uses simple-git for git operations and GitHub REST API for PR management.
  *
  * Repository structure:
  *   {accountId}/drafts/      - status: generated
@@ -94,6 +94,52 @@ class GitHubSync {
   }
 
   /**
+   * Get GitHub API headers.
+   */
+  async _getApiHeaders() {
+    const config = require('./config');
+    const token = await config.get('github.token');
+    if (!token) throw new Error('GitHub トークンが設定されていません');
+    return {
+      Authorization: `token ${token}`,
+      Accept: 'application/vnd.github.v3+json',
+      'Content-Type': 'application/json',
+    };
+  }
+
+  /**
+   * Get owner and repo from the configured repository string.
+   */
+  async _getOwnerRepo() {
+    const config = require('./config');
+    const repo = await config.get('github.repository');
+    if (!repo || !repo.includes('/')) throw new Error('リポジトリ名が無効です');
+    const [owner, name] = repo.split('/');
+    return { owner, repo: name };
+  }
+
+  /**
+   * Call the GitHub REST API.
+   */
+  async _githubApi(method, endpoint, body = null) {
+    const headers = await this._getApiHeaders();
+    const { owner, repo } = await this._getOwnerRepo();
+    const url = `https://api.github.com/repos/${owner}/${repo}${endpoint}`;
+
+    const options = { method, headers };
+    if (body) options.body = JSON.stringify(body);
+
+    const res = await fetch(url, options);
+    const text = await res.text();
+
+    if (!res.ok) {
+      throw new Error(`GitHub API ${res.status}: ${text}`);
+    }
+
+    return text ? JSON.parse(text) : null;
+  }
+
+  /**
    * Initialize or clone the repository into the sync directory.
    */
   async init() {
@@ -102,18 +148,15 @@ class GitHubSync {
 
     const isRepo = await git.checkIsRepo().catch(() => false);
     if (isRepo) {
-      // Already initialized - update remote URL in case token changed
       const remoteUrl = await this._getRemoteUrl();
       try {
         await git.remote(['set-url', 'origin', remoteUrl]);
       } catch {
-        // Remote might not exist yet
         await git.addRemote('origin', remoteUrl).catch(() => {});
       }
       return { status: 'ready', syncDir };
     }
 
-    // Clone the repository
     const remoteUrl = await this._getRemoteUrl();
     try {
       const parentDir = path.dirname(syncDir);
@@ -122,7 +165,6 @@ class GitHubSync {
       this._git = simpleGit(syncDir);
       return { status: 'cloned', syncDir };
     } catch (err) {
-      // If clone fails (empty repo), init locally and set remote
       if (err.message.includes('empty') || err.message.includes('warning')) {
         await git.init();
         await git.addRemote('origin', remoteUrl).catch(() => {});
@@ -151,10 +193,10 @@ class GitHubSync {
     }
   }
 
+  // ─── Phase 1: Direct push to main ───
+
   /**
-   * Push a single article to the GitHub repository.
-   * Copies the article to the sync dir in the correct status directory,
-   * adds frontmatter, commits, and pushes.
+   * Push a single article to the GitHub repository (main branch).
    */
   async pushArticle(accountId, filename, status, metadata = {}) {
     if (this._syncing) return { skipped: true, reason: 'sync in progress' };
@@ -164,6 +206,9 @@ class GitHubSync {
       await this.init();
       const git = await this._getGit();
       const syncDir = await this._getSyncDir();
+
+      // Ensure we're on main
+      await this._ensureMainBranch(git);
 
       // Pull first to avoid conflicts
       try {
@@ -180,7 +225,6 @@ class GitHubSync {
       }
       const content = fs.readFileSync(localPath, 'utf-8');
 
-      // Parse existing frontmatter (if any) and merge metadata
       const { metadata: existing, body } = frontmatter.parse(content);
       const mergedMeta = {
         ...existing,
@@ -190,12 +234,11 @@ class GitHubSync {
         ...metadata,
       };
 
-      // Determine target directory based on status
       const statusDir = STATUS_DIR_MAP[mergedMeta.status] || 'drafts';
       const targetDir = path.join(syncDir, accountId, statusDir);
       fs.mkdirSync(targetDir, { recursive: true });
 
-      // Remove from other status directories (in case status changed)
+      // Remove from other status directories
       for (const dir of Object.values(STATUS_DIR_MAP)) {
         if (dir === statusDir) continue;
         const oldPath = path.join(syncDir, accountId, dir, filename);
@@ -204,12 +247,10 @@ class GitHubSync {
         }
       }
 
-      // Write article with frontmatter to sync directory
       const targetPath = path.join(targetDir, filename);
       const articleWithFm = frontmatter.stringify(mergedMeta, body);
       fs.writeFileSync(targetPath, articleWithFm, 'utf-8');
 
-      // Git add, commit, push
       await git.add('.');
       const statusResult = await git.status();
       if (statusResult.isClean()) {
@@ -223,7 +264,6 @@ class GitHubSync {
       try {
         await git.push('origin', 'main');
       } catch {
-        // If main doesn't exist yet, push and set upstream
         await git.push(['-u', 'origin', 'main']);
       }
 
@@ -233,6 +273,274 @@ class GitHubSync {
       this._syncing = false;
     }
   }
+
+  // ─── Phase 2: PR-based push flow ───
+
+  /**
+   * Push article to an edit branch and create/update a PR.
+   * Branch naming: edit/{accountId}/{YYYY-MM-DD}
+   */
+  async pushArticleToPR(accountId, filename, status, metadata = {}) {
+    if (this._syncing) return { skipped: true, reason: 'sync in progress' };
+
+    try {
+      this._syncing = true;
+      await this.init();
+      const git = await this._getGit();
+      const syncDir = await this._getSyncDir();
+
+      // Build branch name
+      const today = new Date().toISOString().split('T')[0];
+      const branchName = `edit/${accountId}/${today}`;
+
+      // Ensure main is up to date
+      await this._ensureMainBranch(git);
+      try {
+        await git.pull('origin', 'main', { '--rebase': 'true' });
+      } catch {
+        // Remote might be empty
+      }
+
+      // Create or checkout the edit branch
+      const branches = await git.branchLocal();
+      if (branches.all.includes(branchName)) {
+        await git.checkout(branchName);
+        // Merge main into it to stay up-to-date
+        try { await git.merge(['main']); } catch { /* ignore */ }
+      } else {
+        await git.checkoutLocalBranch(branchName);
+      }
+
+      // Read and write article
+      const articlesDir = this._getArticlesDir(accountId);
+      const localPath = path.join(articlesDir, filename);
+      if (!fs.existsSync(localPath)) {
+        await git.checkout('main');
+        return { error: '記事ファイルが見つかりません' };
+      }
+      const content = fs.readFileSync(localPath, 'utf-8');
+
+      const { metadata: existing, body } = frontmatter.parse(content);
+      const mergedMeta = {
+        ...existing,
+        account_id: accountId,
+        status: status || 'generated',
+        synced_at: new Date().toISOString(),
+        ...metadata,
+      };
+
+      const statusDir = STATUS_DIR_MAP[mergedMeta.status] || 'drafts';
+      const targetDir = path.join(syncDir, accountId, statusDir);
+      fs.mkdirSync(targetDir, { recursive: true });
+
+      // Remove from other status directories
+      for (const dir of Object.values(STATUS_DIR_MAP)) {
+        if (dir === statusDir) continue;
+        const oldPath = path.join(syncDir, accountId, dir, filename);
+        if (fs.existsSync(oldPath)) {
+          fs.unlinkSync(oldPath);
+        }
+      }
+
+      const targetPath = path.join(targetDir, filename);
+      const articleWithFm = frontmatter.stringify(mergedMeta, body);
+      fs.writeFileSync(targetPath, articleWithFm, 'utf-8');
+
+      // Also sync .rewrite-config.yml
+      await this._syncRewriteConfig(syncDir);
+
+      await git.add('.');
+      const statusResult = await git.status();
+      if (statusResult.isClean()) {
+        await git.checkout('main');
+        return { success: true, noChanges: true };
+      }
+
+      const title = frontmatter.extractTitle(body);
+      const commitMsg = `[auto] ${this._statusLabel(mergedMeta.status)} - ${title || filename}`;
+      await git.commit(commitMsg);
+
+      // Push the edit branch
+      try {
+        await git.push('origin', branchName);
+      } catch {
+        await git.push(['-u', 'origin', branchName]);
+      }
+
+      // Create or update PR
+      const pr = await this._ensurePR(accountId, branchName, today);
+
+      // Go back to main
+      await git.checkout('main');
+
+      this._lastSyncTime = new Date().toISOString();
+      return { success: true, commitMsg, pr };
+    } finally {
+      this._syncing = false;
+    }
+  }
+
+  /**
+   * Ensure a PR exists for the given branch. If not, create one.
+   */
+  async _ensurePR(accountId, branchName, date) {
+    try {
+      // Check for existing PRs from this branch
+      const prs = await this._githubApi('GET', `/pulls?head=${encodeURIComponent((await this._getOwnerRepo()).owner + ':' + branchName)}&state=open`);
+
+      if (prs && prs.length > 0) {
+        return { url: prs[0].html_url, number: prs[0].number, created: false };
+      }
+
+      // Count files in this branch
+      const syncDir = await this._getSyncDir();
+      const accountDir = path.join(syncDir, accountId);
+      let fileCount = 0;
+      if (fs.existsSync(accountDir)) {
+        for (const dir of Object.values(STATUS_DIR_MAP)) {
+          const dirPath = path.join(accountDir, dir);
+          if (fs.existsSync(dirPath)) {
+            fileCount += fs.readdirSync(dirPath).filter(f => f.endsWith('.md')).length;
+          }
+        }
+      }
+
+      const config = require('./config');
+      const account = await config.getAccount(accountId);
+      const displayName = account?.display_name || accountId;
+
+      const prTitle = `[${displayName}] ${date} の記事（${fileCount}件）`;
+      const prBody = [
+        `## 記事の編集PR`,
+        '',
+        `アカウント: **${displayName}**`,
+        `日付: ${date}`,
+        `記事数: ${fileCount}件`,
+        '',
+        '### 使い方',
+        '- ファイルを直接編集して記事を修正できます',
+        '- `/rewrite` コマンドをコメントに書くとAIリライトが実行されます',
+        '- マージすると main ブランチに反映され、次回アプリ起動時に同期されます',
+        '',
+        '### /rewrite コマンド例',
+        '```',
+        '/rewrite もっとカジュアルな文体にしてください',
+        '/rewrite AIの基礎.md 具体例を増やして',
+        '/rewrite L10-L25 この段落を書き直して',
+        '/rewrite undo',
+        '/rewrite diff もっと分かりやすく',
+        '```',
+      ].join('\n');
+
+      const newPr = await this._githubApi('POST', '/pulls', {
+        title: prTitle,
+        body: prBody,
+        head: branchName,
+        base: 'main',
+      });
+
+      return { url: newPr.html_url, number: newPr.number, created: true };
+    } catch (err) {
+      console.error('[github-sync] PR creation failed:', err.message);
+      return { error: err.message };
+    }
+  }
+
+  // ─── Phase 2: Workflow & Config deployment ───
+
+  /**
+   * Deploy GitHub Actions workflow and rewrite scripts to the repository.
+   */
+  async setupWorkflow() {
+    if (this._syncing) return { skipped: true, reason: 'sync in progress' };
+
+    try {
+      this._syncing = true;
+      await this.init();
+      const git = await this._getGit();
+      const syncDir = await this._getSyncDir();
+
+      await this._ensureMainBranch(git);
+      try {
+        await git.pull('origin', 'main', { '--rebase': 'true' });
+      } catch { /* empty repo */ }
+
+      // Deploy workflow file
+      const workflowDir = path.join(syncDir, '.github', 'workflows');
+      fs.mkdirSync(workflowDir, { recursive: true });
+
+      const workflowTemplate = fs.readFileSync(
+        path.join(__dirname, '..', 'templates', 'ai-rewrite.yml'),
+        'utf-8'
+      );
+      fs.writeFileSync(path.join(workflowDir, 'ai-rewrite.yml'), workflowTemplate, 'utf-8');
+
+      // Deploy rewrite scripts
+      const scriptsDir = path.join(syncDir, '.github', 'scripts');
+      fs.mkdirSync(scriptsDir, { recursive: true });
+
+      const parserScript = fs.readFileSync(
+        path.join(__dirname, '..', 'templates', 'rewrite-parser.js'),
+        'utf-8'
+      );
+      fs.writeFileSync(path.join(scriptsDir, 'rewrite-parser.js'), parserScript, 'utf-8');
+
+      const rewriteScript = fs.readFileSync(
+        path.join(__dirname, '..', 'templates', 'rewrite.js'),
+        'utf-8'
+      );
+      fs.writeFileSync(path.join(scriptsDir, 'rewrite.js'), rewriteScript, 'utf-8');
+
+      // Deploy .rewrite-config.yml
+      await this._syncRewriteConfig(syncDir);
+
+      await git.add('.');
+      const statusResult = await git.status();
+      if (statusResult.isClean()) {
+        return { success: true, noChanges: true };
+      }
+
+      await git.commit('[setup] GitHub Actions ワークフローとリライトスクリプトを配備');
+      try {
+        await git.push('origin', 'main');
+      } catch {
+        await git.push(['-u', 'origin', 'main']);
+      }
+
+      this._lastSyncTime = new Date().toISOString();
+      return { success: true };
+    } finally {
+      this._syncing = false;
+    }
+  }
+
+  /**
+   * Sync .rewrite-config.yml from app settings to the sync directory.
+   */
+  async _syncRewriteConfig(syncDir) {
+    const config = require('./config');
+    const writingGuidelines = await config.get('article.writing_guidelines') || '';
+    const model = await config.get('api.generation_model') || 'claude-sonnet-4-5-20250929';
+
+    const configYaml = [
+      '# リライト時に適用するライティングガイドライン',
+      'writing_guidelines: |',
+      ...writingGuidelines.split('\n').map(l => `  ${l}`),
+      '',
+      '# 使用するモデル',
+      `model: ${model}`,
+      '',
+      '# リライト時の追加システムプロンプト',
+      'additional_prompt: |',
+      '  リライト時は元の記事の構成と主張を維持しつつ、',
+      '  指示された箇所のみを改善してください。',
+      '  <!-- paid-line --> の位置は変更しないでください。',
+    ].join('\n');
+
+    fs.writeFileSync(path.join(syncDir, '.rewrite-config.yml'), configYaml, 'utf-8');
+  }
+
+  // ─── Phase 1: Pull & Sync ───
 
   /**
    * Pull changes from GitHub and sync back to local articles directory.
@@ -246,7 +554,8 @@ class GitHubSync {
       const git = await this._getGit();
       const syncDir = await this._getSyncDir();
 
-      // Pull latest
+      await this._ensureMainBranch(git);
+
       try {
         await git.pull('origin', 'main');
       } catch (err) {
@@ -256,7 +565,6 @@ class GitHubSync {
         throw err;
       }
 
-      // Scan the sync directory for this account's articles
       const articlesDir = this._getArticlesDir(accountId);
       if (!fs.existsSync(articlesDir)) {
         fs.mkdirSync(articlesDir, { recursive: true });
@@ -274,16 +582,33 @@ class GitHubSync {
           const localFilePath = path.join(articlesDir, file);
           const syncContent = fs.readFileSync(syncFilePath, 'utf-8');
 
-          // Strip frontmatter for local storage
           const { body } = frontmatter.parse(syncContent);
 
-          // Check if local file is different
           const localContent = fs.existsSync(localFilePath)
             ? fs.readFileSync(localFilePath, 'utf-8')
             : null;
 
           if (localContent !== body) {
             fs.writeFileSync(localFilePath, body, 'utf-8');
+            changes++;
+          }
+        }
+      }
+
+      // Phase 3: Track deleted files
+      const syncAccountDir = path.join(syncDir, accountId);
+      if (fs.existsSync(syncAccountDir) && fs.existsSync(articlesDir)) {
+        const remoteFiles = new Set();
+        for (const dir of Object.values(STATUS_DIR_MAP)) {
+          const dirPath = path.join(syncAccountDir, dir);
+          if (!fs.existsSync(dirPath)) continue;
+          fs.readdirSync(dirPath).filter(f => f.endsWith('.md')).forEach(f => remoteFiles.add(f));
+        }
+        const localFiles = fs.readdirSync(articlesDir).filter(f => f.endsWith('.md'));
+        for (const localFile of localFiles) {
+          if (remoteFiles.size > 0 && !remoteFiles.has(localFile)) {
+            // File was deleted on remote - remove locally
+            fs.unlinkSync(path.join(articlesDir, localFile));
             changes++;
           }
         }
@@ -308,19 +633,20 @@ class GitHubSync {
       const git = await this._getGit();
       const syncDir = await this._getSyncDir();
 
-      // Pull first
+      await this._ensureMainBranch(git);
+
       try {
         await git.pull('origin', 'main');
       } catch {
         // Ignore if remote is empty
       }
 
-      // Push all local articles to sync dir
       const articlesDir = this._getArticlesDir(accountId);
       if (!fs.existsSync(articlesDir)) {
         return { success: true, pushed: 0, pulled: 0 };
       }
 
+      // Phase 3: Track changed files only
       const localFiles = fs.readdirSync(articlesDir).filter(f => f.endsWith('.md'));
       let pushed = 0;
 
@@ -343,15 +669,22 @@ class GitHubSync {
         const targetPath = path.join(targetDir, file);
         const articleWithFm = frontmatter.stringify(mergedMeta, body);
 
-        // Only write if different
         const existing = fs.existsSync(targetPath) ? fs.readFileSync(targetPath, 'utf-8') : null;
         if (existing !== articleWithFm) {
+          // Remove from other directories first
+          for (const dir of Object.values(STATUS_DIR_MAP)) {
+            if (dir === statusDir) continue;
+            const oldPath = path.join(syncDir, accountId, dir, file);
+            if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+          }
           fs.writeFileSync(targetPath, articleWithFm, 'utf-8');
           pushed++;
         }
       }
 
-      // Commit and push if there are changes
+      // Also sync .rewrite-config.yml
+      await this._syncRewriteConfig(syncDir);
+
       await git.add('.');
       const statusResult = await git.status();
       if (!statusResult.isClean()) {
@@ -363,11 +696,86 @@ class GitHubSync {
         }
       }
 
-      // Now pull remote changes back to local
       const pullResult = await this._pullToLocal(accountId, syncDir, articlesDir);
 
       this._lastSyncTime = new Date().toISOString();
       return { success: true, pushed, pulled: pullResult.changes };
+    } finally {
+      this._syncing = false;
+    }
+  }
+
+  // ─── Phase 3: Improved conflict resolution ───
+
+  /**
+   * Ensure we are on the main branch safely.
+   */
+  async _ensureMainBranch(git) {
+    try {
+      const branches = await git.branchLocal();
+      if (branches.current !== 'main') {
+        if (branches.all.includes('main')) {
+          await git.checkout('main');
+        } else {
+          // No main branch yet (fresh repo), create it
+          try {
+            await git.checkout(['-b', 'main']);
+          } catch {
+            // Already on main or just initialized
+          }
+        }
+      }
+    } catch {
+      // Fresh repo - nothing to do
+    }
+  }
+
+  /**
+   * Pull with conflict resolution: GitHub side wins (respects mobile edits).
+   */
+  async pullWithConflictResolution(accountId) {
+    if (this._syncing) return { skipped: true, reason: 'sync in progress' };
+
+    try {
+      this._syncing = true;
+      await this.init();
+      const git = await this._getGit();
+      const syncDir = await this._getSyncDir();
+
+      await this._ensureMainBranch(git);
+
+      try {
+        await git.pull('origin', 'main');
+      } catch (pullErr) {
+        if (pullErr.message.includes("Couldn't find remote ref")) {
+          return { success: true, changes: 0, conflicts: 0 };
+        }
+        // Conflict detected - resolve by accepting remote (theirs)
+        if (pullErr.message.includes('CONFLICT') || pullErr.message.includes('Merge conflict')) {
+          console.log('[github-sync] Conflict detected, accepting remote changes');
+          try {
+            await git.raw(['checkout', '--theirs', '.']);
+            await git.add('.');
+            await git.commit('[auto] 競合解決: GitHub側の変更を優先');
+          } catch (resolveErr) {
+            // If merge resolution fails, abort and try reset
+            try { await git.merge(['--abort']); } catch { /* ignore */ }
+            await git.reset(['--hard', 'origin/main']);
+          }
+        } else {
+          throw pullErr;
+        }
+      }
+
+      const articlesDir = this._getArticlesDir(accountId);
+      if (!fs.existsSync(articlesDir)) {
+        fs.mkdirSync(articlesDir, { recursive: true });
+      }
+
+      const pullResult = this._pullToLocal(accountId, syncDir, articlesDir);
+
+      this._lastSyncTime = new Date().toISOString();
+      return { success: true, changes: pullResult.changes };
     } finally {
       this._syncing = false;
     }
@@ -433,4 +841,4 @@ class GitHubSync {
 // Singleton instance
 const githubSync = new GitHubSync();
 
-module.exports = { GitHubSync, githubSync };
+module.exports = { GitHubSync, githubSync, STATUS_DIR_MAP, DIR_STATUS_MAP };
