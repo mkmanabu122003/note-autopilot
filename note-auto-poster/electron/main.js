@@ -296,9 +296,71 @@ ipcMain.handle('articles:update', async (_, accountId, article) => {
     const filePath = path.join(dir, filename);
     if (!fs.existsSync(filePath)) return { error: '記事ファイルが見つかりません' };
     fs.writeFileSync(filePath, article.body || article.content || '', 'utf-8');
+
+    // Auto-push to GitHub if enabled and status changed
+    if (article.status) {
+      try {
+        const config = require('./utils/config');
+        const githubEnabled = await config.get('github.enabled');
+        if (githubEnabled) {
+          const { githubSync } = require('./utils/github-sync');
+          await githubSync.pushArticle(accountId, filename, article.status);
+        }
+      } catch (e) {
+        console.error('[articles:update] GitHub push failed (non-blocking):', e.message);
+      }
+    }
+
     return { success: true };
   } catch (e) {
     return { error: e.message };
+  }
+});
+
+// GitHub Sync handlers
+ipcMain.handle('github:testConnection', async () => {
+  try {
+    const { githubSync } = require('./utils/github-sync');
+    githubSync.reset();
+    return await githubSync.testConnection();
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('github:sync', async (_, accountId) => {
+  try {
+    const { githubSync } = require('./utils/github-sync');
+    return await githubSync.sync(accountId);
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('github:pushArticle', async (_, accountId, filename, status, metadata) => {
+  try {
+    const { githubSync } = require('./utils/github-sync');
+    return await githubSync.pushArticle(accountId, filename, status, metadata);
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('github:pull', async (_, accountId) => {
+  try {
+    const { githubSync } = require('./utils/github-sync');
+    return await githubSync.pull(accountId);
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('github:status', async () => {
+  try {
+    const { githubSync } = require('./utils/github-sync');
+    return githubSync.getStatus();
+  } catch (e) {
+    return { syncing: false, lastSyncTime: null, error: e.message };
   }
 });
 

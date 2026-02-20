@@ -150,6 +150,21 @@ class Generator {
       // Parse title from first line
       const lines = articleText.split('\n');
       const title = (lines[0] || '').replace(/^#+\s*/, '').trim();
+      const filename = path.basename(articlePath);
+
+      // Auto-push to GitHub if enabled
+      try {
+        const githubEnabled = await config.get('github.enabled');
+        if (githubEnabled) {
+          const { githubSync } = require('../utils/github-sync');
+          await githubSync.pushArticle(accountId, filename, 'generated', {
+            topic_id: topicId,
+            pillar: topic.pillar || '',
+          });
+        }
+      } catch (e) {
+        console.error('[generator] GitHub push failed (non-blocking):', e.message);
+      }
 
       return {
         success: true,
@@ -195,6 +210,20 @@ class Generator {
         fs.writeFileSync(articlePath, articleText, 'utf-8');
 
         await this.sm.updateTopicStatus(accountId, topic.id, 'generated');
+
+        // Auto-push to GitHub if enabled
+        try {
+          const githubEnabled = await config.get('github.enabled');
+          if (githubEnabled) {
+            const { githubSync } = require('../utils/github-sync');
+            await githubSync.pushArticle(accountId, path.basename(articlePath), 'generated', {
+              topic_id: topic.id,
+              pillar: topic.pillar || '',
+            });
+          }
+        } catch (e) {
+          console.error('[generator:batch] GitHub push failed (non-blocking):', e.message);
+        }
 
         results.push({ topic: topic.theme, topicId: topic.id, status: 'success', articlePath });
       } catch (err) {

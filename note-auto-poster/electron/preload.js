@@ -40,4 +40,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   google: {
     readKeyFile: (path) => ipcRenderer.invoke('google:readKeyFile', path),
   },
+  github: {
+    testConnection: () => ipcRenderer.invoke('github:testConnection'),
+    sync: (accountId) => ipcRenderer.invoke('github:sync', accountId),
+    pushArticle: (accountId, filename, status, metadata) => ipcRenderer.invoke('github:pushArticle', accountId, filename, status, metadata),
+    pull: (accountId) => ipcRenderer.invoke('github:pull', accountId),
+    status: () => ipcRenderer.invoke('github:status'),
+  },
 });

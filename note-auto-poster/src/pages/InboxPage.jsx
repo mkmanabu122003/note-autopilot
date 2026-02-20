@@ -30,7 +30,12 @@ export default function InboxPage() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
 
-  // Load accounts on mount
+  // GitHub sync state
+  const [githubEnabled, setGithubEnabled] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState(null);
+
+  // Load accounts on mount + check GitHub sync status
   useEffect(() => {
     async function load() {
       try {
@@ -41,6 +46,17 @@ export default function InboxPage() {
         }
       } catch {
         setAccounts([]);
+      }
+      // Check GitHub enabled
+      try {
+        const ghEnabled = await window.electronAPI.config.get('github.enabled');
+        setGithubEnabled(!!ghEnabled);
+        if (ghEnabled) {
+          const status = await window.electronAPI.github.status();
+          if (status.lastSyncTime) setLastSyncTime(status.lastSyncTime);
+        }
+      } catch {
+        // GitHub not configured
       }
     }
     load();
@@ -235,6 +251,29 @@ export default function InboxPage() {
     }
   };
 
+  // GitHub sync handler
+  const handleGitHubSync = async () => {
+    if (!selectedAccount || syncing) return;
+    setSyncing(true);
+    try {
+      const result = await window.electronAPI.github.sync(selectedAccount);
+      if (result.success) {
+        const msg = `同期完了（push: ${result.pushed || 0}件, pull: ${result.pulled || 0}件）`;
+        showToast(msg, 'success');
+        setLastSyncTime(new Date().toISOString());
+        loadData();
+      } else if (result.skipped) {
+        showToast('同期中です。しばらくお待ちください', 'info');
+      } else {
+        showToast('同期エラー: ' + (result.error || ''), 'error');
+      }
+    } catch (e) {
+      showToast('同期に失敗しました: ' + (e.message || ''), 'error');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const pillars = accountData?.pillars || [];
   const accountDisplayName =
     accounts.find((a) => a.id === selectedAccount)?.display_name || selectedAccount;
@@ -291,6 +330,27 @@ export default function InboxPage() {
                   {generatingSingle ? '生成中...' : `「${selectedTopic.theme?.substring(0, 20) || ''}...」を即時生成`}
                 </button>
               )}
+            </div>
+          )}
+
+          {/* GitHub Sync bar */}
+          {githubEnabled && selectedAccount && (
+            <div className="px-3 py-2 border-b border-gray-200 flex items-center justify-between bg-gray-50">
+              <div className="flex items-center gap-2 text-xs text-gray-500">
+                <span className={`w-2 h-2 rounded-full ${syncing ? 'bg-yellow-400 animate-pulse' : lastSyncTime ? 'bg-green-400' : 'bg-gray-300'}`} />
+                {syncing
+                  ? '同期中...'
+                  : lastSyncTime
+                    ? `最終同期: ${new Date(lastSyncTime).toLocaleTimeString()}`
+                    : '未同期'}
+              </div>
+              <button
+                onClick={handleGitHubSync}
+                disabled={syncing}
+                className="px-2 py-1 text-xs rounded border border-gray-300 text-gray-600 hover:bg-gray-100 disabled:opacity-50"
+              >
+                {syncing ? '同期中...' : 'GitHub同期'}
+              </button>
             </div>
           )}
 
