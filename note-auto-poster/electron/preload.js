@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     run: (accountId) => ipcRenderer.invoke('generator:run', accountId),
     runSingle: (accountId, topicId, regenerateInstructions) => ipcRenderer.invoke('generator:runSingle', accountId, topicId, regenerateInstructions),
     status: (batchId) => ipcRenderer.invoke('generator:status', batchId),
+    getSystemPrompt: () => ipcRenderer.invoke('generator:getSystemPrompt'),
   },
   articles: {
     list: (accountId) => ipcRenderer.invoke('articles:list', accountId),

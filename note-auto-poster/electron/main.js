@@ -220,6 +220,11 @@ ipcMain.handle('generator:runSingle', async (_, accountId, topicId, regenerateIn
   }
 });
 
+ipcMain.handle('generator:getSystemPrompt', async () => {
+  const { SYSTEM_PROMPT } = require('./services/generator');
+  return SYSTEM_PROMPT;
+});
+
 ipcMain.handle('generator:status', async (_, batchId) => {
   try {
     const { Generator } = require('./services/generator');
