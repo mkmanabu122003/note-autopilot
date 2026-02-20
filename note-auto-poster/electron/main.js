@@ -342,6 +342,15 @@ ipcMain.handle('github:sync', async (_, accountId) => {
   }
 });
 
+ipcMain.handle('github:syncWithPR', async (_, accountId) => {
+  try {
+    const { githubSync } = require('./utils/github-sync');
+    return await githubSync.syncWithPR(accountId);
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
 ipcMain.handle('github:pushArticle', async (_, accountId, filename, status, metadata) => {
   try {
     const { githubSync } = require('./utils/github-sync');
