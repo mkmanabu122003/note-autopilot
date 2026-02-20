@@ -3,6 +3,7 @@ import ApiKeySection from '../components/settings/ApiKeySection';
 import GoogleSheetsSection from '../components/settings/GoogleSheetsSection';
 import AppSettingsSection from '../components/settings/AppSettingsSection';
 import WritingGuidelinesSection from '../components/settings/WritingGuidelinesSection';
+import SystemPromptSection from '../components/settings/SystemPromptSection';
 
 export default function SettingsPage() {
   const [config, setConfig] = useState(null);
@@ -39,6 +40,7 @@ export default function SettingsPage() {
         <ApiKeySection config={config} onConfigChange={loadConfig} />
         <GoogleSheetsSection config={config} onConfigChange={loadConfig} />
         <WritingGuidelinesSection config={config} onConfigChange={loadConfig} />
+        <SystemPromptSection />
         <AppSettingsSection config={config} onConfigChange={loadConfig} />
       </div>
     </div>

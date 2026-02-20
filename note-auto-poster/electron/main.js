@@ -209,15 +209,20 @@ ipcMain.handle('generator:run', async (_, accountId) => {
   }
 });
 
-ipcMain.handle('generator:runSingle', async (_, accountId, topicId) => {
+ipcMain.handle('generator:runSingle', async (_, accountId, topicId, regenerateInstructions) => {
   try {
     const { Generator } = require('./services/generator');
     const gen = new Generator();
-    return await gen.runSingle(accountId, topicId);
+    return await gen.runSingle(accountId, topicId, regenerateInstructions);
   } catch (e) {
     console.error('[generator:runSingle] Error:', e.message);
     return { error: e.message };
   }
+});
+
+ipcMain.handle('generator:getSystemPrompt', async () => {
+  const { SYSTEM_PROMPT } = require('./services/generator');
+  return SYSTEM_PROMPT;
 });
 
 ipcMain.handle('generator:status', async (_, batchId) => {
