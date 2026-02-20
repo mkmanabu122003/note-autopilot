@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;900&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    width: 1280px;
+    height: 670px;
+    overflow: hidden;
+    font-family: 'M PLUS Rounded 1c', sans-serif;
+  }
+
+  .container {
+    position: relative;
+    width: 1280px;
+    height: 670px;
+    background: #ffffff;
+    --title-font-size: {{TITLE_FONT_SIZE}}px;
+  }
+
+  /* 上のレインボーバー */
+  .rainbow-top {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 8px;
+    background: linear-gradient(90deg, #ff6b6b, #ffa94d, #ffd43b, #69db7c, #4dabf7, #cc5de8);
+  }
+
+  /* 下のレインボーバー */
+  .rainbow-bottom {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 8px;
+    background: linear-gradient(90deg, #cc5de8, #4dabf7, #69db7c, #ffd43b, #ffa94d, #ff6b6b);
+  }
+
+  /* 柱チップ */
+  .pillar-chip {
+    position: absolute;
+    top: 40px;
+    left: 60px;
+    padding: 6px 18px;
+    border-radius: 20px;
+    background: {{ACCENT_COLOR_LIGHT}};
+    color: #333;
+    font-size: 13px;
+    font-weight: 900;
+    letter-spacing: 0.05em;
+    z-index: 2;
+  }
+
+  /* タイトル */
+  .title-main {
+    position: absolute;
+    top: 50%;
+    left: 60px;
+    right: 100px;
+    transform: translateY(-50%);
+    font-size: var(--title-font-size);
+    font-weight: 900;
+    color: #1a1a1a;
+    line-height: 1.5;
+    z-index: 2;
+  }
+
+  .title-main .accent {
+    color: {{ACCENT_COLOR}};
+  }
+
+  /* 著者名 */
+  .author {
+    position: absolute;
+    bottom: 36px;
+    left: 60px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    z-index: 2;
+  }
+
+  .author-icon {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, {{ACCENT_COLOR}}, {{ACCENT_COLOR_LIGHT}});
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 14px;
+    font-weight: 900;
+  }
+
+  .author-name {
+    font-size: 13px;
+    color: #666;
+  }
+
+  /* ドットパターン */
+  .dot-pattern {
+    position: absolute;
+    bottom: 30px;
+    right: 40px;
+    width: 120px;
+    height: 120px;
+    background-image: radial-gradient(circle, #ccc 1.2px, transparent 1.2px);
+    background-size: 12px 12px;
+    opacity: 0.06;
+    z-index: 1;
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    <div class="rainbow-top"></div>
+    <div class="rainbow-bottom"></div>
+
+    <div class="pillar-chip">{{PILLAR_LABEL}}</div>
+
+    <div class="title-main">{{TITLE}}</div>
+
+    <div class="author">
+      <div class="author-icon">T</div>
+      <span class="author-name">{{AUTHOR_NAME}}</span>
+    </div>
+
+    <div class="dot-pattern"></div>
+  </div>
+</body>
+</html>

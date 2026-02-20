@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;900&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    width: 1280px;
+    height: 670px;
+    overflow: hidden;
+    font-family: 'Noto Sans JP', sans-serif;
+  }
+
+  .container {
+    position: relative;
+    width: 1280px;
+    height: 670px;
+    background: #0e0e0e;
+    --title-font-size: {{TITLE_FONT_SIZE}}px;
+  }
+
+  /* 右側のグラデ背景 */
+  .gradient-bg {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 50%;
+    height: 100%;
+    background: linear-gradient(135deg, {{ACCENT_COLOR}} 0%, {{ACCENT_COLOR_LIGHT}} 100%);
+    clip-path: polygon(20% 0, 100% 0, 100% 100%, 0% 100%);
+    opacity: 0.15;
+  }
+
+  /* オーバーレイ */
+  .overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, #0e0e0e 40%, transparent 80%);
+  }
+
+  /* 柱ラベル */
+  .pillar-label {
+    position: absolute;
+    top: 60px;
+    left: 70px;
+    font-size: 14px;
+    font-weight: 400;
+    color: {{ACCENT_COLOR}};
+    letter-spacing: 0.15em;
+    z-index: 2;
+  }
+
+  /* ゴールドの短い横線 */
+  .accent-line {
+    position: absolute;
+    top: 95px;
+    left: 70px;
+    width: 60px;
+    height: 3px;
+    background: {{ACCENT_COLOR}};
+    z-index: 2;
+  }
+
+  /* タイトル */
+  .title-main {
+    position: absolute;
+    top: 50%;
+    left: 70px;
+    right: 200px;
+    transform: translateY(-50%);
+    font-size: var(--title-font-size);
+    font-weight: 900;
+    color: #ffffff;
+    line-height: 1.45;
+    z-index: 2;
+  }
+
+  /* 著者名 */
+  .author {
+    position: absolute;
+    bottom: 50px;
+    left: 70px;
+    font-size: 13px;
+    color: #666;
+    z-index: 2;
+  }
+
+  /* 右端の縦書きテキスト */
+  .vertical-text {
+    position: absolute;
+    top: 50%;
+    right: 35px;
+    transform: translateY(-50%);
+    writing-mode: vertical-rl;
+    font-size: 12px;
+    color: #444;
+    letter-spacing: 0.3em;
+    opacity: 0.5;
+    z-index: 2;
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    <div class="gradient-bg"></div>
+    <div class="overlay"></div>
+
+    <div class="pillar-label">{{PILLAR_LABEL}}</div>
+    <div class="accent-line"></div>
+
+    <div class="title-main">{{TITLE}}</div>
+
+    <div class="author">{{AUTHOR_NAME}}</div>
+
+    <div class="vertical-text">訪日外国人向けガイド</div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;900&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    width: 1280px;
+    height: 670px;
+    overflow: hidden;
+    font-family: 'Noto Sans JP', sans-serif;
+  }
+
+  .container {
+    position: relative;
+    width: 1280px;
+    height: 670px;
+    background: #fafaf8;
+    --title-font-size: {{TITLE_FONT_SIZE}}px;
+  }
+
+  /* 左端の黒バー */
+  .left-bar {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 10px;
+    height: 100%;
+    background: #1a1a1a;
+  }
+
+  /* 上下の細線 */
+  .line-top {
+    position: absolute;
+    top: 24px;
+    left: 50px;
+    right: 50px;
+    height: 1px;
+    background: #ddd;
+  }
+
+  .line-bottom {
+    position: absolute;
+    bottom: 24px;
+    left: 50px;
+    right: 50px;
+    height: 1px;
+    background: #ddd;
+  }
+
+  /* 柱ラベル */
+  .pillar-label {
+    position: absolute;
+    top: 48px;
+    left: 60px;
+    font-size: 13px;
+    font-weight: 400;
+    color: #999;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+  }
+
+  /* タイトル */
+  .title-main {
+    position: absolute;
+    top: 50%;
+    left: 60px;
+    right: 120px;
+    transform: translateY(-50%);
+    font-size: var(--title-font-size);
+    font-weight: 900;
+    color: #1a1a1a;
+    line-height: 1.4;
+  }
+
+  .title-main mark {
+    background: {{ACCENT_COLOR_LIGHT}};
+    color: inherit;
+    padding: 0 4px;
+  }
+
+  /* 著者名 */
+  .author {
+    position: absolute;
+    bottom: 44px;
+    left: 60px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: #888;
+  }
+
+  .author-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #ccc;
+  }
+
+  /* 右下の薄い数字 */
+  .bg-number {
+    position: absolute;
+    bottom: -30px;
+    right: 30px;
+    font-size: 280px;
+    font-weight: 900;
+    color: #1a1a1a;
+    opacity: 0.03;
+    line-height: 1;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    <div class="left-bar"></div>
+    <div class="line-top"></div>
+    <div class="line-bottom"></div>
+
+    <div class="pillar-label">{{PILLAR_LABEL}}</div>
+
+    <div class="title-main">{{TITLE}}</div>
+
+    <div class="author">
+      <span class="author-dot"></span>
+      <span>{{AUTHOR_NAME}}</span>
+    </div>
+
+    <div class="bg-number">01</div>
+  </div>
+</body>
+</html>

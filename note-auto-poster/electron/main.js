@@ -297,7 +297,53 @@ ipcMain.handle('articles:update', async (_, accountId, article) => {
   }
 });
 
+// Thumbnail handlers
+ipcMain.handle('thumbnails:generate', async (_, accountId, article) => {
+  try {
+    const thumbnailGenerator = require('./services/thumbnail-generator');
+    return await thumbnailGenerator.generateAll(accountId, article);
+  } catch (e) {
+    console.error('[thumbnails:generate] Error:', e.message);
+    return { error: e.message };
+  }
+});
+
+ipcMain.handle('thumbnails:list', (_, accountId, articleId) => {
+  try {
+    const thumbnailGenerator = require('./services/thumbnail-generator');
+    return thumbnailGenerator.listThumbnails(accountId, articleId);
+  } catch (e) {
+    return [];
+  }
+});
+
+ipcMain.handle('thumbnails:select', (_, accountId, articleId, pattern) => {
+  try {
+    const thumbnailGenerator = require('./services/thumbnail-generator');
+    return thumbnailGenerator.selectThumbnail(accountId, articleId, pattern);
+  } catch (e) {
+    return { error: e.message };
+  }
+});
+
+ipcMain.handle('thumbnails:readAsBase64', (_, filePath) => {
+  try {
+    const data = fs.readFileSync(filePath);
+    return `data:image/png;base64,${data.toString('base64')}`;
+  } catch (e) {
+    return null;
+  }
+});
+
 app.whenReady().then(createWindow);
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+app.on('before-quit', async () => {
+  try {
+    const thumbnailGenerator = require('./services/thumbnail-generator');
+    await thumbnailGenerator.cleanup();
+  } catch {
+    // cleanup failure is non-fatal
+  }
 });
