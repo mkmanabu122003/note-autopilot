@@ -2,6 +2,7 @@ import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useToast } from '../../hooks/useToast';
+import ThumbnailSelector from './ThumbnailSelector';
 
 function PaidLineDivider() {
   return (
@@ -107,6 +108,7 @@ export default function ArticlePreview({ article, accountId, onUpdate, onClose, 
     { id: 'preview', label: 'プレビュー' },
     { id: 'markdown', label: '編集' },
     { id: 'meta', label: 'メタ情報' },
+    { id: 'thumbnail', label: 'サムネイル' },
   ];
 
   return (
@@ -296,6 +298,14 @@ export default function ArticlePreview({ article, accountId, onUpdate, onClose, 
             <MetaRow label="バッチID" value={article.batch_id || '-'} />
             <MetaRow label="再生成回数" value={article.regenerate_count ?? 0} />
           </div>
+        )}
+
+        {tab === 'thumbnail' && (
+          <ThumbnailSelector
+            article={article}
+            accountId={accountId}
+            onUpdate={onUpdate}
+          />
         )}
       </div>
 
