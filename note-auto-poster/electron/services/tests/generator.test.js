@@ -35,9 +35,9 @@ describe('generator', () => {
 
   describe('SYSTEM_PROMPT', () => {
     it('日本語のシステムプロンプトを含む', () => {
-      expect(SYSTEM_PROMPT).toContain('プロのライター');
+      expect(SYSTEM_PROMPT).toContain('プロのコンテンツライター');
       expect(SYSTEM_PROMPT).toContain('note');
-      expect(SYSTEM_PROMPT).toContain('2000〜4000文字');
+      expect(SYSTEM_PROMPT).toContain('3000〜5000文字');
     });
   });
 
