@@ -150,6 +150,24 @@ class Generator {
       // Parse title from first line
       const lines = articleText.split('\n');
       const title = (lines[0] || '').replace(/^#+\s*/, '').trim();
+      const filename = path.basename(articlePath);
+
+      // Auto-push to GitHub if enabled
+      try {
+        const githubEnabled = await config.get('github.enabled');
+        if (githubEnabled) {
+          const { githubSync } = require('../utils/github-sync');
+          const prMode = await config.get('github.pr_mode');
+          const meta = { topic_id: topicId, pillar: topic.pillar || '' };
+          if (prMode) {
+            await githubSync.pushArticleToPR(accountId, filename, 'generated', meta);
+          } else {
+            await githubSync.pushArticle(accountId, filename, 'generated', meta);
+          }
+        }
+      } catch (e) {
+        console.error('[generator] GitHub push failed (non-blocking):', e.message);
+      }
 
       return {
         success: true,
@@ -195,6 +213,24 @@ class Generator {
         fs.writeFileSync(articlePath, articleText, 'utf-8');
 
         await this.sm.updateTopicStatus(accountId, topic.id, 'generated');
+
+        // Auto-push to GitHub if enabled
+        try {
+          const githubEnabled = await config.get('github.enabled');
+          if (githubEnabled) {
+            const { githubSync } = require('../utils/github-sync');
+            const prMode = await config.get('github.pr_mode');
+            const meta = { topic_id: topic.id, pillar: topic.pillar || '' };
+            const fname = path.basename(articlePath);
+            if (prMode) {
+              await githubSync.pushArticleToPR(accountId, fname, 'generated', meta);
+            } else {
+              await githubSync.pushArticle(accountId, fname, 'generated', meta);
+            }
+          }
+        } catch (e) {
+          console.error('[generator:batch] GitHub push failed (non-blocking):', e.message);
+        }
 
         results.push({ topic: topic.theme, topicId: topic.id, status: 'success', articlePath });
       } catch (err) {

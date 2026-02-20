@@ -60,6 +60,17 @@ const schema = {
     },
     default: {},
   },
+  github: {
+    type: 'object',
+    additionalProperties: true,
+    properties: {
+      token: { type: 'string', default: '' },
+      repository: { type: 'string', default: '' },
+      enabled: { type: 'boolean', default: false },
+      pr_mode: { type: 'boolean', default: false },
+    },
+    default: {},
+  },
 };
 
 let store = null;

@@ -1,0 +1,225 @@
+name: AI Rewrite
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: read
+
+jobs:
+  rewrite:
+    # Only run on PR comments starting with /rewrite
+    if: >
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/rewrite')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check rate limit
+        id: rate-check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Check daily rewrite count for this PR
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const today = new Date().toISOString().split('T')[0];
+            const rewriteCount = comments.data.filter(c =>
+              c.body.startsWith('/rewrite') &&
+              c.created_at.startsWith(today) &&
+              c.user.login === context.actor
+            ).length;
+            if (rewriteCount > 20) {
+              core.setFailed('1日あたりのリライト上限（20回）に達しました');
+              return;
+            }
+            core.setOutput('count', rewriteCount);
+
+      - name: Check write permission
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: perm } = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              username: context.actor,
+            });
+            if (!['admin', 'write'].includes(perm.permission)) {
+              core.setFailed('リポジトリへの書き込み権限がありません');
+            }
+
+      - name: Get PR details
+        id: pr-details
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+            core.setOutput('branch', pr.head.ref);
+            core.setOutput('sha', pr.head.sha);
+
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr-details.outputs.branch }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install @anthropic-ai/sdk@latest js-yaml@latest
+
+      - name: Parse rewrite command
+        id: parse
+        run: |
+          node .github/scripts/rewrite-parser.js '${{ github.event.comment.body }}' '${{ steps.pr-details.outputs.branch }}'
+
+      - name: Execute rewrite
+        id: rewrite
+        if: steps.parse.outputs.action == 'rewrite'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TARGET_FILE: ${{ steps.parse.outputs.target_file }}
+          LINE_START: ${{ steps.parse.outputs.line_start }}
+          LINE_END: ${{ steps.parse.outputs.line_end }}
+          QUOTE_TEXT: ${{ steps.parse.outputs.quote_text }}
+          INSTRUCTION: ${{ steps.parse.outputs.instruction }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          node .github/scripts/rewrite.js
+
+      - name: Execute undo
+        id: undo
+        if: steps.parse.outputs.action == 'undo'
+        run: |
+          # Find the last rewrite commit
+          LAST_REWRITE=$(git log --oneline --grep='\[rewrite\]' -1 --format="%H")
+          if [ -z "$LAST_REWRITE" ]; then
+            echo "error=リライトコミットが見つかりません" >> $GITHUB_OUTPUT
+          else
+            git revert --no-edit "$LAST_REWRITE"
+            git push origin ${{ steps.pr-details.outputs.branch }}
+            echo "reverted=$LAST_REWRITE" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Execute diff preview
+        id: diff-preview
+        if: steps.parse.outputs.action == 'diff'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TARGET_FILE: ${{ steps.parse.outputs.target_file }}
+          LINE_START: ${{ steps.parse.outputs.line_start }}
+          LINE_END: ${{ steps.parse.outputs.line_end }}
+          QUOTE_TEXT: ${{ steps.parse.outputs.quote_text }}
+          INSTRUCTION: ${{ steps.parse.outputs.instruction }}
+          DRY_RUN: "true"
+        run: |
+          node .github/scripts/rewrite.js
+
+      - name: Commit rewrite result
+        if: steps.parse.outputs.action == 'rewrite' && steps.rewrite.outputs.success == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          INSTRUCTION="${{ steps.parse.outputs.instruction }}"
+          SHORT_INSTRUCTION="${INSTRUCTION:0:30}"
+          git commit -m "[rewrite] ${SHORT_INSTRUCTION}"
+          git push origin ${{ steps.pr-details.outputs.branch }}
+
+      - name: Comment rewrite result
+        if: steps.parse.outputs.action == 'rewrite' && steps.rewrite.outputs.success == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let summary = '';
+            try {
+              summary = fs.readFileSync('/tmp/rewrite-summary.md', 'utf-8');
+            } catch {
+              summary = 'リライトが完了しました。';
+            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `✅ リライト完了\n\n${summary}`,
+            });
+
+      - name: Comment undo result
+        if: steps.parse.outputs.action == 'undo'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const reverted = '${{ steps.undo.outputs.reverted }}';
+            const error = '${{ steps.undo.outputs.error }}';
+            if (error) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: `❌ Undo 失敗: ${error}`,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: `↩️ 直前のリライトを取り消しました（${reverted.substring(0, 7)}）`,
+              });
+            }
+
+      - name: Comment diff preview
+        if: steps.parse.outputs.action == 'diff' && steps.diff-preview.outputs.success == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let diff = '';
+            try {
+              diff = fs.readFileSync('/tmp/rewrite-diff.md', 'utf-8');
+            } catch {
+              diff = '差分を生成できませんでした。';
+            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `📝 リライト差分プレビュー（コミットなし）\n\n${diff}`,
+            });
+
+      - name: Comment on error
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: [
+                '❌ リライトに失敗しました',
+                '',
+                '### 使い方',
+                '```',
+                '/rewrite [指示内容]',
+                '/rewrite ファイル名.md [指示内容]',
+                '/rewrite L10-L25 [指示内容]',
+                '/rewrite 「引用テキスト」[指示内容]',
+                '/rewrite undo',
+                '/rewrite diff [指示内容]',
+                '```',
+              ].join('\n'),
+            });

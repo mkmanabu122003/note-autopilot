@@ -40,6 +40,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   google: {
     readKeyFile: (path) => ipcRenderer.invoke('google:readKeyFile', path),
   },
+  github: {
+    testConnection: () => ipcRenderer.invoke('github:testConnection'),
+    sync: (accountId) => ipcRenderer.invoke('github:sync', accountId),
+    pushArticle: (accountId, filename, status, metadata) => ipcRenderer.invoke('github:pushArticle', accountId, filename, status, metadata),
+    pushArticleToPR: (accountId, filename, status, metadata) => ipcRenderer.invoke('github:pushArticleToPR', accountId, filename, status, metadata),
+    pull: (accountId) => ipcRenderer.invoke('github:pull', accountId),
+    pullWithConflictResolution: (accountId) => ipcRenderer.invoke('github:pullWithConflictResolution', accountId),
+    setupWorkflow: () => ipcRenderer.invoke('github:setupWorkflow'),
+    status: () => ipcRenderer.invoke('github:status'),
+  },
   thumbnails: {
     generate: (accountId, article) => ipcRenderer.invoke('thumbnails:generate', accountId, article),
     list: (accountId, articleId) => ipcRenderer.invoke('thumbnails:list', accountId, articleId),
