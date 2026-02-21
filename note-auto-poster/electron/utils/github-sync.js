@@ -670,7 +670,20 @@ class GitHubSync {
 
       // Phase 3: Track changed files only
       const localFiles = fs.readdirSync(articlesDir).filter(f => f.endsWith('.md'));
+      const localFileSet = new Set(localFiles);
       let pushed = 0;
+
+      // Remove files from sync dir that were deleted locally
+      for (const dir of Object.values(STATUS_DIR_MAP)) {
+        const dirPath = path.join(syncDir, accountId, dir);
+        if (!fs.existsSync(dirPath)) continue;
+        for (const file of fs.readdirSync(dirPath).filter(f => f.endsWith('.md'))) {
+          if (!localFileSet.has(file)) {
+            fs.unlinkSync(path.join(dirPath, file));
+            pushed++;
+          }
+        }
+      }
 
       for (const file of localFiles) {
         const localPath = path.join(articlesDir, file);
@@ -728,7 +741,9 @@ class GitHubSync {
   }
 
   /**
-   * Full sync with PR creation: sync to main, then create edit branch + PR.
+   * Full sync with PR creation: push articles to edit branch and create PR.
+   * Articles go to the edit branch only (not main) so the PR has a diff.
+   * When the user merges the PR, articles land on main.
    */
   async syncWithPR(accountId) {
     if (this._syncing) return { skipped: true, reason: 'sync in progress' };
@@ -744,19 +759,44 @@ class GitHubSync {
       // Remove .github/ from tracking to avoid workflow scope errors
       await this._removeGithubFromTracking(git, syncDir);
 
-      // Pull main first
+      // Pull main first to get current state
       try {
         await git.pull('origin', 'main');
       } catch { /* empty repo */ }
 
-      // Copy all local articles to sync dir on main
       const articlesDir = this._getArticlesDir(accountId);
       if (!fs.existsSync(articlesDir)) {
         return { success: true, pushed: 0, pulled: 0, pr: null };
       }
 
+      // Create or checkout edit branch from main
+      const today = new Date().toISOString().split('T')[0];
+      const branchName = `edit/${accountId}/${today}`;
+
+      const branches = await git.branchLocal();
+      if (branches.all.includes(branchName)) {
+        await git.checkout(branchName);
+        try { await git.merge(['main']); } catch { /* ignore */ }
+      } else {
+        await git.checkoutLocalBranch(branchName);
+      }
+
+      // Copy local articles to sync dir (on edit branch)
       const localFiles = fs.readdirSync(articlesDir).filter(f => f.endsWith('.md'));
+      const localFileSet = new Set(localFiles);
       let pushed = 0;
+
+      // Remove files from sync dir that were deleted locally
+      for (const dir of Object.values(STATUS_DIR_MAP)) {
+        const dirPath = path.join(syncDir, accountId, dir);
+        if (!fs.existsSync(dirPath)) continue;
+        for (const file of fs.readdirSync(dirPath).filter(f => f.endsWith('.md'))) {
+          if (!localFileSet.has(file)) {
+            fs.unlinkSync(path.join(dirPath, file));
+            pushed++;
+          }
+        }
+      }
 
       for (const file of localFiles) {
         const localPath = path.join(articlesDir, file);
@@ -792,44 +832,27 @@ class GitHubSync {
       // Sync config
       await this._syncRewriteConfig(syncDir);
 
-      // Commit to main first
+      // Commit on the edit branch
       await git.add([accountId, '.rewrite-config.yml']);
-      let mainStatus = await git.status();
-      if (!mainStatus.isClean()) {
+      const branchStatus = await git.status();
+      if (!branchStatus.isClean()) {
         await git.commit(`[auto] 同期 - ${accountId} (${pushed}件)`);
-        try {
-          await git.push('origin', 'main');
-        } catch {
-          await git.push(['-u', 'origin', 'main']);
-        }
       }
 
-      // Now create edit branch from main and push + create PR
-      const today = new Date().toISOString().split('T')[0];
-      const branchName = `edit/${accountId}/${today}`;
-
-      const branches = await git.branchLocal();
-      if (branches.all.includes(branchName)) {
-        await git.checkout(branchName);
-        try { await git.merge(['main']); } catch { /* ignore */ }
-      } else {
-        await git.checkoutLocalBranch(branchName);
-      }
-
-      // Push the edit branch (it has the same content as main now)
+      // Push the edit branch
       try {
         await git.push('origin', branchName);
       } catch {
         await git.push(['-u', 'origin', branchName]);
       }
 
-      // Create PR
+      // Create PR (edit branch → main, so there's a diff)
       const pr = await this._ensurePR(accountId, branchName, today);
 
       // Go back to main
       await git.checkout('main');
 
-      // Pull remote changes back to local
+      // Pull remote changes back to local (from main — picks up merged PRs)
       const pullResult = this._pullToLocal(accountId, syncDir, articlesDir);
 
       this._lastSyncTime = new Date().toISOString();

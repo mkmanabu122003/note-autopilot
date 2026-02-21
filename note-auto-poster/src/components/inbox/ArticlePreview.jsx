@@ -348,10 +348,10 @@ export default function ArticlePreview({ article, accountId, onUpdate, onClose, 
               編集
             </button>
             <button
-              onClick={() => handleStatusChange('rejected')}
-              className="flex-1 px-3 py-2 text-sm rounded bg-red-50 text-red-600 border border-red-200 hover:bg-red-100"
+              onClick={() => onDelete?.(article)}
+              className="px-3 py-2 text-sm rounded bg-red-600 text-white hover:bg-red-700"
             >
-              却下
+              削除
             </button>
           </>
         )}
