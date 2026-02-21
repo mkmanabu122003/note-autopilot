@@ -251,6 +251,25 @@ export default function InboxPage() {
     }
   };
 
+  // Delete article handler
+  const handleDelete = async (article) => {
+    if (!selectedAccount || !article) return;
+    const confirmed = window.confirm(`「${article.title}」を削除しますか？この操作は取り消せません。`);
+    if (!confirmed) return;
+    try {
+      const result = await window.electronAPI.articles.delete(selectedAccount, article.id);
+      if (result.success) {
+        showToast('記事を削除しました', 'success');
+        setSelectedArticle(null);
+        loadData();
+      } else {
+        showToast('削除エラー: ' + (result.error || ''), 'error');
+      }
+    } catch (e) {
+      showToast('削除に失敗しました: ' + (e.message || ''), 'error');
+    }
+  };
+
   // GitHub sync handler
   const handleGitHubSync = async () => {
     if (!selectedAccount || syncing) return;
@@ -411,6 +430,7 @@ export default function InboxPage() {
             onUpdate={handleArticleUpdate}
             onClose={() => setSelectedArticle(null)}
             onRegenerate={handleRegenerate}
+            onDelete={handleDelete}
             regenerating={generatingSingle}
           />
         )}
