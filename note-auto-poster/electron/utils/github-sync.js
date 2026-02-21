@@ -458,6 +458,31 @@ class GitHubSync {
     try {
       this._syncing = true;
 
+      const syncDir = await this._getSyncDir();
+      const git = simpleGit(syncDir);
+
+      // Initialize repo if needed
+      if (!fs.existsSync(path.join(syncDir, '.git'))) {
+        fs.mkdirSync(syncDir, { recursive: true });
+        await git.init();
+        const remoteUrl = await this._getRemoteUrl();
+        await git.addRemote('origin', remoteUrl);
+      }
+
+      // Pull latest main
+      try {
+        await git.fetch('origin', 'main');
+        await git.checkout('main');
+        await git.pull('origin', 'main');
+      } catch {
+        // Empty repo or first time - create initial commit if needed
+        const statusResult = await git.status();
+        if (statusResult.current !== 'main') {
+          try { await git.checkout('main'); } catch { await git.checkoutLocalBranch('main'); }
+        }
+      }
+
+      // Deploy workflow files via git
       const filesToDeploy = [
         { repoPath: '.github/workflows/ai-rewrite.yml', templateName: 'ai-rewrite.yml' },
         { repoPath: '.github/scripts/rewrite-parser.js', templateName: 'rewrite-parser.js' },
@@ -468,29 +493,14 @@ class GitHubSync {
       for (const { repoPath, templateName } of filesToDeploy) {
         const templatePath = path.join(__dirname, '..', 'templates', templateName);
         const content = fs.readFileSync(templatePath, 'utf-8');
-        const contentBase64 = Buffer.from(content, 'utf-8').toString('base64');
 
-        // Get existing file SHA (needed for updates)
-        let sha = null;
-        try {
-          const existing = await this._githubApi('GET', `/contents/${repoPath}?ref=main`);
-          sha = existing?.sha || null;
-        } catch {
-          // File doesn't exist yet
-        }
-
-        const body = {
-          message: `[setup] ${repoPath} を配備`,
-          content: contentBase64,
-          branch: 'main',
-        };
-        if (sha) body.sha = sha;
-
-        await this._githubApi('PUT', `/contents/${repoPath}`, body);
+        const targetPath = path.join(syncDir, repoPath);
+        fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+        fs.writeFileSync(targetPath, content, 'utf-8');
         deployed++;
       }
 
-      // Also deploy .rewrite-config.yml via API
+      // Also deploy .rewrite-config.yml
       const config = require('./config');
       const writingGuidelines = await config.get('article.writing_guidelines') || '';
       const model = await config.get('api.generation_model') || 'claude-sonnet-4-5-20250929';
@@ -510,21 +520,19 @@ class GitHubSync {
         '  <!-- paid-line --> の位置は変更しないでください。',
       ].join('\n');
 
-      const configBase64 = Buffer.from(configYaml, 'utf-8').toString('base64');
-      let configSha = null;
-      try {
-        const existing = await this._githubApi('GET', '/contents/.rewrite-config.yml?ref=main');
-        configSha = existing?.sha || null;
-      } catch { /* doesn't exist */ }
+      fs.writeFileSync(path.join(syncDir, '.rewrite-config.yml'), configYaml, 'utf-8');
 
-      const configBody = {
-        message: '[setup] .rewrite-config.yml を配備',
-        content: configBase64,
-        branch: 'main',
-      };
-      if (configSha) configBody.sha = configSha;
-
-      await this._githubApi('PUT', '/contents/.rewrite-config.yml', configBody);
+      // Git add, commit, push
+      await git.add(['.github', '.rewrite-config.yml']);
+      const statusResult = await git.status();
+      if (!statusResult.isClean()) {
+        await git.commit('[setup] AIリライトワークフローを配備');
+        try {
+          await git.push('origin', 'main');
+        } catch {
+          await git.push(['-u', 'origin', 'main']);
+        }
+      }
 
       this._lastSyncTime = new Date().toISOString();
       return { success: true, deployed };
