@@ -95,9 +95,14 @@ async function main() {
 
     // Line range targeting
     if (lineStart > 0 && lineEnd > 0) {
+      // Adjust line numbers if they include frontmatter lines
+      const fmLineCount = fmPart ? fmPart.split('\n').length - 1 : 0;
+      const adjStart = lineStart > fmLineCount ? lineStart - fmLineCount : lineStart;
+      const adjEnd = lineEnd > fmLineCount ? lineEnd - fmLineCount : lineEnd;
+
       const lines = bodyPart.split('\n');
-      const startIdx = lineStart - 1;
-      const endIdx = Math.min(lineEnd, lines.length);
+      const startIdx = adjStart - 1;
+      const endIdx = Math.min(adjEnd, lines.length);
       prefix = lines.slice(0, startIdx).join('\n');
       targetContent = lines.slice(startIdx, endIdx).join('\n');
       suffix = lines.slice(endIdx).join('\n');
