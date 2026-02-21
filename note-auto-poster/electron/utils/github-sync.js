@@ -251,7 +251,7 @@ class GitHubSync {
       const articleWithFm = frontmatter.stringify(mergedMeta, body);
       fs.writeFileSync(targetPath, articleWithFm, 'utf-8');
 
-      await git.add('.');
+      await git.add([accountId]);
       const statusResult = await git.status();
       if (statusResult.isClean()) {
         return { success: true, noChanges: true };
@@ -349,7 +349,7 @@ class GitHubSync {
       // Also sync .rewrite-config.yml
       await this._syncRewriteConfig(syncDir);
 
-      await git.add('.');
+      await git.add([accountId, '.rewrite-config.yml']);
       const statusResult = await git.status();
       if (statusResult.isClean()) {
         await git.checkout('main');
@@ -685,7 +685,7 @@ class GitHubSync {
       // Also sync .rewrite-config.yml
       await this._syncRewriteConfig(syncDir);
 
-      await git.add('.');
+      await git.add([accountId, '.rewrite-config.yml']);
       const statusResult = await git.status();
       if (!statusResult.isClean()) {
         await git.commit(`[auto] 同期 - ${accountId} (${pushed}件)`);
@@ -700,6 +700,115 @@ class GitHubSync {
 
       this._lastSyncTime = new Date().toISOString();
       return { success: true, pushed, pulled: pullResult.changes };
+    } finally {
+      this._syncing = false;
+    }
+  }
+
+  /**
+   * Full sync with PR creation: sync to main, then create edit branch + PR.
+   */
+  async syncWithPR(accountId) {
+    if (this._syncing) return { skipped: true, reason: 'sync in progress' };
+
+    try {
+      this._syncing = true;
+      await this.init();
+      const git = await this._getGit();
+      const syncDir = await this._getSyncDir();
+
+      await this._ensureMainBranch(git);
+
+      // Pull main first
+      try {
+        await git.pull('origin', 'main');
+      } catch { /* empty repo */ }
+
+      // Copy all local articles to sync dir on main
+      const articlesDir = this._getArticlesDir(accountId);
+      if (!fs.existsSync(articlesDir)) {
+        return { success: true, pushed: 0, pulled: 0, pr: null };
+      }
+
+      const localFiles = fs.readdirSync(articlesDir).filter(f => f.endsWith('.md'));
+      let pushed = 0;
+
+      for (const file of localFiles) {
+        const localPath = path.join(articlesDir, file);
+        const content = fs.readFileSync(localPath, 'utf-8');
+        const { metadata, body } = frontmatter.parse(content);
+        const status = metadata.status || 'generated';
+        const statusDir = STATUS_DIR_MAP[status] || 'drafts';
+        const targetDir = path.join(syncDir, accountId, statusDir);
+        fs.mkdirSync(targetDir, { recursive: true });
+
+        const mergedMeta = {
+          ...metadata,
+          account_id: accountId,
+          status,
+          synced_at: new Date().toISOString(),
+        };
+
+        const targetPath = path.join(targetDir, file);
+        const articleWithFm = frontmatter.stringify(mergedMeta, body);
+
+        const existing = fs.existsSync(targetPath) ? fs.readFileSync(targetPath, 'utf-8') : null;
+        if (existing !== articleWithFm) {
+          for (const dir of Object.values(STATUS_DIR_MAP)) {
+            if (dir === statusDir) continue;
+            const oldPath = path.join(syncDir, accountId, dir, file);
+            if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+          }
+          fs.writeFileSync(targetPath, articleWithFm, 'utf-8');
+          pushed++;
+        }
+      }
+
+      // Sync config
+      await this._syncRewriteConfig(syncDir);
+
+      // Commit to main first
+      await git.add([accountId, '.rewrite-config.yml']);
+      let mainStatus = await git.status();
+      if (!mainStatus.isClean()) {
+        await git.commit(`[auto] 同期 - ${accountId} (${pushed}件)`);
+        try {
+          await git.push('origin', 'main');
+        } catch {
+          await git.push(['-u', 'origin', 'main']);
+        }
+      }
+
+      // Now create edit branch from main and push + create PR
+      const today = new Date().toISOString().split('T')[0];
+      const branchName = `edit/${accountId}/${today}`;
+
+      const branches = await git.branchLocal();
+      if (branches.all.includes(branchName)) {
+        await git.checkout(branchName);
+        try { await git.merge(['main']); } catch { /* ignore */ }
+      } else {
+        await git.checkoutLocalBranch(branchName);
+      }
+
+      // Push the edit branch (it has the same content as main now)
+      try {
+        await git.push('origin', branchName);
+      } catch {
+        await git.push(['-u', 'origin', branchName]);
+      }
+
+      // Create PR
+      const pr = await this._ensurePR(accountId, branchName, today);
+
+      // Go back to main
+      await git.checkout('main');
+
+      // Pull remote changes back to local
+      const pullResult = this._pullToLocal(accountId, syncDir, articlesDir);
+
+      this._lastSyncTime = new Date().toISOString();
+      return { success: true, pushed, pulled: pullResult.changes, pr };
     } finally {
       this._syncing = false;
     }

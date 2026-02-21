@@ -256,9 +256,16 @@ export default function InboxPage() {
     if (!selectedAccount || syncing) return;
     setSyncing(true);
     try {
-      const result = await window.electronAPI.github.sync(selectedAccount);
+      // Check if PR mode is enabled
+      const prMode = await window.electronAPI.config.get('github.pr_mode');
+      const result = prMode
+        ? await window.electronAPI.github.syncWithPR(selectedAccount)
+        : await window.electronAPI.github.sync(selectedAccount);
       if (result.success) {
-        const msg = `同期完了（push: ${result.pushed || 0}件, pull: ${result.pulled || 0}件）`;
+        let msg = `同期完了（push: ${result.pushed || 0}件, pull: ${result.pulled || 0}件）`;
+        if (result.pr?.url) {
+          msg += result.pr.created ? ' PRを作成しました' : ' PR更新済み';
+        }
         showToast(msg, 'success');
         setLastSyncTime(new Date().toISOString());
         loadData();

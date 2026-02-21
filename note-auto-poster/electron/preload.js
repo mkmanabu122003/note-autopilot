@@ -43,6 +43,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   github: {
     testConnection: () => ipcRenderer.invoke('github:testConnection'),
     sync: (accountId) => ipcRenderer.invoke('github:sync', accountId),
+    syncWithPR: (accountId) => ipcRenderer.invoke('github:syncWithPR', accountId),
     pushArticle: (accountId, filename, status, metadata) => ipcRenderer.invoke('github:pushArticle', accountId, filename, status, metadata),
     pushArticleToPR: (accountId, filename, status, metadata) => ipcRenderer.invoke('github:pushArticleToPR', accountId, filename, status, metadata),
     pull: (accountId) => ipcRenderer.invoke('github:pull', accountId),
