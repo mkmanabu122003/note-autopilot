@@ -322,6 +322,19 @@ ipcMain.handle('articles:update', async (_, accountId, article) => {
   }
 });
 
+ipcMain.handle('articles:delete', async (_, accountId, articleId) => {
+  try {
+    const dir = getArticlesDir(accountId);
+    const filename = articleId.endsWith('.md') ? articleId : `${articleId}.md`;
+    const filePath = path.join(dir, filename);
+    if (!fs.existsSync(filePath)) return { error: '記事ファイルが見つかりません' };
+    fs.unlinkSync(filePath);
+    return { success: true };
+  } catch (e) {
+    return { error: e.message };
+  }
+});
+
 // GitHub Sync handlers
 ipcMain.handle('github:testConnection', async () => {
   try {

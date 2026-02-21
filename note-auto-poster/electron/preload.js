@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     list: (accountId) => ipcRenderer.invoke('articles:list', accountId),
     get: (accountId, articleId) => ipcRenderer.invoke('articles:get', accountId, articleId),
     update: (accountId, article) => ipcRenderer.invoke('articles:update', accountId, article),
+    delete: (accountId, articleId) => ipcRenderer.invoke('articles:delete', accountId, articleId),
   },
   dialog: {
     openFile: (options) => ipcRenderer.invoke('dialog:openFile', options),

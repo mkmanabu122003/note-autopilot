@@ -30,7 +30,7 @@ function MarkdownPreview({ body }) {
   );
 }
 
-export default function ArticlePreview({ article, accountId, onUpdate, onClose, onRegenerate, regenerating }) {
+export default function ArticlePreview({ article, accountId, onUpdate, onClose, onRegenerate, onDelete, regenerating }) {
   const { showToast } = useToast();
   const [tab, setTab] = useState('preview');
   const [editingTitle, setEditingTitle] = useState(false);
@@ -325,6 +325,12 @@ export default function ArticlePreview({ article, accountId, onUpdate, onClose, 
               className="flex-1 px-3 py-2 text-sm rounded bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
             >
               {regenerating ? '再生成中...' : '再生成'}
+            </button>
+            <button
+              onClick={() => onDelete?.(article)}
+              className="px-3 py-2 text-sm rounded bg-red-600 text-white hover:bg-red-700"
+            >
+              削除
             </button>
           </>
         ) : (
