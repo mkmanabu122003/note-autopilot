@@ -12,6 +12,7 @@
  *   QUOTE_TEXT        - Quoted text to find and rewrite (optional)
  *   INSTRUCTION       - Rewrite instruction
  *   DRY_RUN           - If "true", output diff without writing (for /rewrite diff)
+ *   BATCH_FILE        - JSON file with array of {file, lineStart, lineEnd, instruction} (for /rewrite apply)
  */
 
 const fs = require('fs');
@@ -36,18 +37,8 @@ async function main() {
     process.exit(1);
   }
 
-  const targetFile = process.env.TARGET_FILE || '';
-  const lineStart = parseInt(process.env.LINE_START || '0', 10);
-  const lineEnd = parseInt(process.env.LINE_END || '0', 10);
-  const quoteText = process.env.QUOTE_TEXT || '';
-  const instruction = process.env.INSTRUCTION || '';
+  const batchFile = process.env.BATCH_FILE || '';
   const isDryRun = process.env.DRY_RUN === 'true';
-
-  if (!instruction) {
-    setOutput('success', 'false');
-    console.error('リライト指示がありません');
-    process.exit(1);
-  }
 
   // Load rewrite config
   let config = {};
@@ -57,19 +48,7 @@ async function main() {
   }
 
   const model = config.model || 'claude-sonnet-4-5-20250929';
-
-  // Find target files
-  const files = findFiles(targetFile);
-  if (files.length === 0) {
-    setOutput('success', 'false');
-    console.error('対象ファイルが見つかりません');
-    process.exit(1);
-  }
-
   const client = new Anthropic({ apiKey });
-  let totalChanges = 0;
-  const summaryParts = [];
-  const diffParts = [];
 
   // Build system prompt with config
   let systemPrompt = SYSTEM_PROMPT;
@@ -79,6 +58,37 @@ async function main() {
   if (config.additional_prompt) {
     systemPrompt += `\n\n${config.additional_prompt}`;
   }
+
+  // Batch mode: process multiple edits from review comments
+  if (batchFile && fs.existsSync(batchFile)) {
+    const edits = JSON.parse(fs.readFileSync(batchFile, 'utf-8'));
+    await processBatch(client, model, systemPrompt, edits, isDryRun);
+    return;
+  }
+
+  // Single mode
+  const targetFile = process.env.TARGET_FILE || '';
+  const lineStart = parseInt(process.env.LINE_START || '0', 10);
+  const lineEnd = parseInt(process.env.LINE_END || '0', 10);
+  const quoteText = process.env.QUOTE_TEXT || '';
+  const instruction = process.env.INSTRUCTION || '';
+
+  if (!instruction) {
+    setOutput('success', 'false');
+    console.error('リライト指示がありません');
+    process.exit(1);
+  }
+
+  const files = findFiles(targetFile);
+  if (files.length === 0) {
+    setOutput('success', 'false');
+    console.error('対象ファイルが見つかりません');
+    process.exit(1);
+  }
+
+  let totalChanges = 0;
+  const summaryParts = [];
+  const diffParts = [];
 
   for (const filePath of files) {
     const relPath = path.relative(process.cwd(), filePath);
@@ -145,14 +155,12 @@ async function main() {
       const newContent = fmPart + newBody;
 
       if (isDryRun) {
-        // Generate diff for preview
         const diff = generateDiff(bodyPart, newBody, relPath);
         diffParts.push(diff);
       } else {
         fs.writeFileSync(filePath, newContent, 'utf-8');
       }
 
-      // Count changed lines
       const oldLines = bodyPart.split('\n').length;
       const newLines = newBody.split('\n').length;
       const changed = Math.abs(newLines - oldLines) + countDiffLines(bodyPart, newBody);
@@ -165,7 +173,6 @@ async function main() {
     }
   }
 
-  // Write summary
   const summary = [
     `### 変更サマリー`,
     `対象ファイル: ${files.length}件`,
@@ -184,6 +191,109 @@ async function main() {
   setOutput('success', 'true');
   setOutput('changes', String(totalChanges));
   console.log('リライト完了:', summary);
+}
+
+/**
+ * Batch processing: apply multiple review comment edits at once.
+ * Each edit is processed sequentially on the file to avoid conflicts.
+ * Groups edits by file, sorts by line number (descending) so edits don't shift line numbers.
+ */
+async function processBatch(client, model, systemPrompt, edits, isDryRun) {
+  // Group edits by file
+  const editsByFile = {};
+  for (const edit of edits) {
+    const key = edit.file;
+    if (!editsByFile[key]) editsByFile[key] = [];
+    editsByFile[key].push(edit);
+  }
+
+  let totalChanges = 0;
+  const summaryParts = [];
+
+  for (const [filePath, fileEdits] of Object.entries(editsByFile)) {
+    const absPath = path.join(process.cwd(), filePath);
+    if (!fs.existsSync(absPath)) {
+      console.error(`ファイルが見つかりません: ${filePath}`);
+      summaryParts.push(`- **${filePath}**: ファイルが見つかりません`);
+      continue;
+    }
+
+    let content = fs.readFileSync(absPath, 'utf-8');
+    const fmMatch = content.match(/^(---\n[\s\S]*?\n---\n)([\s\S]*)$/);
+    const fmPart = fmMatch ? fmMatch[1] : '';
+    let bodyPart = fmMatch ? fmMatch[2] : content;
+    const fmLineCount = fmPart ? fmPart.split('\n').length - 1 : 0;
+
+    // Sort edits by line number descending so later edits don't shift earlier ones
+    fileEdits.sort((a, b) => (b.lineStart || 0) - (a.lineStart || 0));
+
+    let editCount = 0;
+    for (const edit of fileEdits) {
+      const lineStart = edit.lineStart || 0;
+      const lineEnd = edit.lineEnd || 0;
+
+      if (lineStart <= 0 || lineEnd <= 0) {
+        console.log(`行番号が不正です (${lineStart}-${lineEnd}): スキップ`);
+        continue;
+      }
+
+      // Adjust for frontmatter
+      const adjStart = lineStart > fmLineCount ? lineStart - fmLineCount : lineStart;
+      const adjEnd = lineEnd > fmLineCount ? lineEnd - fmLineCount : lineEnd;
+
+      const lines = bodyPart.split('\n');
+      const startIdx = adjStart - 1;
+      const endIdx = Math.min(adjEnd, lines.length);
+      const prefix = lines.slice(0, startIdx).join('\n');
+      const targetContent = lines.slice(startIdx, endIdx).join('\n');
+      const suffix = lines.slice(endIdx).join('\n');
+
+      const userPrompt = buildUserPrompt(targetContent, edit.instruction, filePath, lineStart, lineEnd, '');
+
+      console.log(`リライト中: ${filePath} L${lineStart}-L${lineEnd} "${edit.instruction}"...`);
+
+      try {
+        const message = await client.messages.create({
+          model,
+          max_tokens: 8192,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userPrompt }],
+        });
+
+        const rewritten = message.content[0].text;
+        bodyPart = prefix + (prefix.endsWith('\n') ? '' : '\n') + rewritten + (suffix.startsWith('\n') ? '' : '\n') + suffix;
+        editCount++;
+      } catch (err) {
+        console.error(`${filePath} L${lineStart}-L${lineEnd} のリライトに失敗: ${err.message}`);
+        summaryParts.push(`- **${filePath}** L${lineStart}-L${lineEnd}: エラー - ${err.message}`);
+      }
+    }
+
+    if (editCount > 0) {
+      const newContent = fmPart + bodyPart;
+      if (!isDryRun) {
+        fs.writeFileSync(absPath, newContent, 'utf-8');
+      }
+
+      const oldContent = fs.readFileSync(absPath, 'utf-8');
+      const changed = countDiffLines(fmPart ? content.slice(fmPart.length) : content, bodyPart);
+      totalChanges += changed;
+      summaryParts.push(`- **${filePath}**: ${editCount}箇所リライト（約${changed}行変更）`);
+    }
+  }
+
+  const summary = [
+    `### 一括リライト サマリー`,
+    `対象: ${edits.length}箇所（${Object.keys(editsByFile).length}ファイル）`,
+    `変更行数: 約${totalChanges}行`,
+    '',
+    ...summaryParts,
+  ].join('\n');
+
+  fs.writeFileSync('/tmp/rewrite-summary.md', summary, 'utf-8');
+  setOutput('success', 'true');
+  setOutput('changes', String(totalChanges));
+  console.log('一括リライト完了:', summary);
 }
 
 function buildUserPrompt(content, instruction, filePath, lineStart, lineEnd, quoteText) {
