@@ -449,66 +449,85 @@ class GitHubSync {
   // ─── Phase 2: Workflow & Config deployment ───
 
   /**
-   * Deploy GitHub Actions workflow and rewrite scripts to the repository.
+   * Deploy GitHub Actions workflow and rewrite scripts via GitHub Contents API.
+   * This avoids the need for the 'workflow' scope on the PAT.
    */
   async setupWorkflow() {
     if (this._syncing) return { skipped: true, reason: 'sync in progress' };
 
     try {
       this._syncing = true;
-      await this.init();
-      const git = await this._getGit();
-      const syncDir = await this._getSyncDir();
 
-      await this._ensureMainBranch(git);
-      try {
-        await git.pull('origin', 'main', { '--rebase': 'true' });
-      } catch { /* empty repo */ }
+      const filesToDeploy = [
+        { repoPath: '.github/workflows/ai-rewrite.yml', templateName: 'ai-rewrite.yml' },
+        { repoPath: '.github/scripts/rewrite-parser.js', templateName: 'rewrite-parser.js' },
+        { repoPath: '.github/scripts/rewrite.js', templateName: 'rewrite.js' },
+      ];
 
-      // Deploy workflow file
-      const workflowDir = path.join(syncDir, '.github', 'workflows');
-      fs.mkdirSync(workflowDir, { recursive: true });
+      let deployed = 0;
+      for (const { repoPath, templateName } of filesToDeploy) {
+        const templatePath = path.join(__dirname, '..', 'templates', templateName);
+        const content = fs.readFileSync(templatePath, 'utf-8');
+        const contentBase64 = Buffer.from(content, 'utf-8').toString('base64');
 
-      const workflowTemplate = fs.readFileSync(
-        path.join(__dirname, '..', 'templates', 'ai-rewrite.yml'),
-        'utf-8'
-      );
-      fs.writeFileSync(path.join(workflowDir, 'ai-rewrite.yml'), workflowTemplate, 'utf-8');
+        // Get existing file SHA (needed for updates)
+        let sha = null;
+        try {
+          const existing = await this._githubApi('GET', `/contents/${repoPath}?ref=main`);
+          sha = existing?.sha || null;
+        } catch {
+          // File doesn't exist yet
+        }
 
-      // Deploy rewrite scripts
-      const scriptsDir = path.join(syncDir, '.github', 'scripts');
-      fs.mkdirSync(scriptsDir, { recursive: true });
+        const body = {
+          message: `[setup] ${repoPath} を配備`,
+          content: contentBase64,
+          branch: 'main',
+        };
+        if (sha) body.sha = sha;
 
-      const parserScript = fs.readFileSync(
-        path.join(__dirname, '..', 'templates', 'rewrite-parser.js'),
-        'utf-8'
-      );
-      fs.writeFileSync(path.join(scriptsDir, 'rewrite-parser.js'), parserScript, 'utf-8');
-
-      const rewriteScript = fs.readFileSync(
-        path.join(__dirname, '..', 'templates', 'rewrite.js'),
-        'utf-8'
-      );
-      fs.writeFileSync(path.join(scriptsDir, 'rewrite.js'), rewriteScript, 'utf-8');
-
-      // Deploy .rewrite-config.yml
-      await this._syncRewriteConfig(syncDir);
-
-      await git.add('.');
-      const statusResult = await git.status();
-      if (statusResult.isClean()) {
-        return { success: true, noChanges: true };
+        await this._githubApi('PUT', `/contents/${repoPath}`, body);
+        deployed++;
       }
 
-      await git.commit('[setup] GitHub Actions ワークフローとリライトスクリプトを配備');
+      // Also deploy .rewrite-config.yml via API
+      const config = require('./config');
+      const writingGuidelines = await config.get('article.writing_guidelines') || '';
+      const model = await config.get('api.generation_model') || 'claude-sonnet-4-5-20250929';
+
+      const configYaml = [
+        '# リライト時に適用するライティングガイドライン',
+        'writing_guidelines: |',
+        ...writingGuidelines.split('\n').map(l => `  ${l}`),
+        '',
+        '# 使用するモデル',
+        `model: ${model}`,
+        '',
+        '# リライト時の追加システムプロンプト',
+        'additional_prompt: |',
+        '  リライト時は元の記事の構成と主張を維持しつつ、',
+        '  指示された箇所のみを改善してください。',
+        '  <!-- paid-line --> の位置は変更しないでください。',
+      ].join('\n');
+
+      const configBase64 = Buffer.from(configYaml, 'utf-8').toString('base64');
+      let configSha = null;
       try {
-        await git.push('origin', 'main');
-      } catch {
-        await git.push(['-u', 'origin', 'main']);
-      }
+        const existing = await this._githubApi('GET', '/contents/.rewrite-config.yml?ref=main');
+        configSha = existing?.sha || null;
+      } catch { /* doesn't exist */ }
+
+      const configBody = {
+        message: '[setup] .rewrite-config.yml を配備',
+        content: configBase64,
+        branch: 'main',
+      };
+      if (configSha) configBody.sha = configSha;
+
+      await this._githubApi('PUT', '/contents/.rewrite-config.yml', configBody);
 
       this._lastSyncTime = new Date().toISOString();
-      return { success: true };
+      return { success: true, deployed };
     } finally {
       this._syncing = false;
     }
@@ -635,6 +654,9 @@ class GitHubSync {
 
       await this._ensureMainBranch(git);
 
+      // Remove .github/ from tracking to avoid workflow scope errors
+      await this._removeGithubFromTracking(git, syncDir);
+
       try {
         await git.pull('origin', 'main');
       } catch {
@@ -718,6 +740,9 @@ class GitHubSync {
       const syncDir = await this._getSyncDir();
 
       await this._ensureMainBranch(git);
+
+      // Remove .github/ from tracking to avoid workflow scope errors
+      await this._removeGithubFromTracking(git, syncDir);
 
       // Pull main first
       try {
@@ -836,6 +861,46 @@ class GitHubSync {
       }
     } catch {
       // Fresh repo - nothing to do
+    }
+  }
+
+  /**
+   * Remove .github/ from git tracking to avoid workflow scope errors on push.
+   * Also adds .github/ to .gitignore.
+   */
+  async _removeGithubFromTracking(git, syncDir) {
+    try {
+      // Add .github/ to .gitignore if not already there
+      const gitignorePath = path.join(syncDir, '.gitignore');
+      let gitignore = '';
+      if (fs.existsSync(gitignorePath)) {
+        gitignore = fs.readFileSync(gitignorePath, 'utf-8');
+      }
+      if (!gitignore.includes('.github/')) {
+        gitignore = gitignore.trimEnd() + '\n.github/\n';
+        fs.writeFileSync(gitignorePath, gitignore, 'utf-8');
+      }
+
+      // Remove .github from git index if tracked
+      try {
+        await git.raw(['rm', '--cached', '-r', '.github']);
+      } catch {
+        // Not tracked - that's fine
+      }
+
+      // Commit if there are changes
+      await git.add('.gitignore');
+      const status = await git.status();
+      if (!status.isClean()) {
+        await git.commit('[auto] .github/ を git 追跡から除外（workflow スコープ不要に）');
+        try {
+          await git.push('origin', 'main');
+        } catch {
+          await git.push(['-u', 'origin', 'main']);
+        }
+      }
+    } catch (err) {
+      console.error('[github-sync] _removeGithubFromTracking error:', err.message);
     }
   }
 
