@@ -251,7 +251,7 @@ class GitHubSync {
       const articleWithFm = frontmatter.stringify(mergedMeta, body);
       fs.writeFileSync(targetPath, articleWithFm, 'utf-8');
 
-      await git.add('.');
+      await git.add([accountId]);
       const statusResult = await git.status();
       if (statusResult.isClean()) {
         return { success: true, noChanges: true };
@@ -349,7 +349,7 @@ class GitHubSync {
       // Also sync .rewrite-config.yml
       await this._syncRewriteConfig(syncDir);
 
-      await git.add('.');
+      await git.add([accountId, '.rewrite-config.yml']);
       const statusResult = await git.status();
       if (statusResult.isClean()) {
         await git.checkout('main');
@@ -685,7 +685,7 @@ class GitHubSync {
       // Also sync .rewrite-config.yml
       await this._syncRewriteConfig(syncDir);
 
-      await git.add('.');
+      await git.add([accountId, '.rewrite-config.yml']);
       const statusResult = await git.status();
       if (!statusResult.isClean()) {
         await git.commit(`[auto] 同期 - ${accountId} (${pushed}件)`);
@@ -768,7 +768,7 @@ class GitHubSync {
       await this._syncRewriteConfig(syncDir);
 
       // Commit to main first
-      await git.add('.');
+      await git.add([accountId, '.rewrite-config.yml']);
       let mainStatus = await git.status();
       if (!mainStatus.isClean()) {
         await git.commit(`[auto] 同期 - ${accountId} (${pushed}件)`);
