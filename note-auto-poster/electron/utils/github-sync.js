@@ -673,13 +673,19 @@ class GitHubSync {
       const localFileSet = new Set(localFiles);
       let pushed = 0;
 
-      // Remove files from sync dir that were deleted locally
+      // Remove files from sync dir that were deleted locally (use git rm)
       for (const dir of Object.values(STATUS_DIR_MAP)) {
         const dirPath = path.join(syncDir, accountId, dir);
         if (!fs.existsSync(dirPath)) continue;
         for (const file of fs.readdirSync(dirPath).filter(f => f.endsWith('.md'))) {
           if (!localFileSet.has(file)) {
-            fs.unlinkSync(path.join(dirPath, file));
+            const relPath = path.join(accountId, dir, file);
+            try {
+              await git.raw(['rm', '-f', relPath]);
+            } catch {
+              // Not tracked — just delete from filesystem
+              fs.unlinkSync(path.join(dirPath, file));
+            }
             pushed++;
           }
         }
@@ -721,7 +727,6 @@ class GitHubSync {
       await this._syncRewriteConfig(syncDir);
 
       await git.add([accountId, '.rewrite-config.yml']);
-      await git.raw(['add', '--all', accountId]);
       const statusResult = await git.status();
       if (!statusResult.isClean()) {
         await git.commit(`[auto] 同期 - ${accountId} (${pushed}件)`);
@@ -787,13 +792,18 @@ class GitHubSync {
       const localFileSet = new Set(localFiles);
       let pushed = 0;
 
-      // Remove files from sync dir that were deleted locally
+      // Remove files from sync dir that were deleted locally (use git rm)
       for (const dir of Object.values(STATUS_DIR_MAP)) {
         const dirPath = path.join(syncDir, accountId, dir);
         if (!fs.existsSync(dirPath)) continue;
         for (const file of fs.readdirSync(dirPath).filter(f => f.endsWith('.md'))) {
           if (!localFileSet.has(file)) {
-            fs.unlinkSync(path.join(dirPath, file));
+            const relPath = path.join(accountId, dir, file);
+            try {
+              await git.raw(['rm', '-f', relPath]);
+            } catch {
+              fs.unlinkSync(path.join(dirPath, file));
+            }
             pushed++;
           }
         }
@@ -833,9 +843,8 @@ class GitHubSync {
       // Sync config
       await this._syncRewriteConfig(syncDir);
 
-      // Commit on the edit branch (use --all to stage deletions too)
+      // Commit on the edit branch
       await git.add([accountId, '.rewrite-config.yml']);
-      await git.raw(['add', '--all', accountId]);
       const branchStatus = await git.status();
       if (!branchStatus.isClean()) {
         await git.commit(`[auto] 同期 - ${accountId} (${pushed}件)`);

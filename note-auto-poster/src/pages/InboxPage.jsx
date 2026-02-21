@@ -30,6 +30,10 @@ export default function InboxPage() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
 
+  // Bulk selection state
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+
   // GitHub sync state
   const [githubEnabled, setGithubEnabled] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -270,6 +274,52 @@ export default function InboxPage() {
     }
   };
 
+  // Bulk delete handlers
+  const handleToggleSelect = (articleId) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(articleId)) {
+        next.delete(articleId);
+      } else {
+        next.add(articleId);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAll = () => {
+    if (selectedIds.size === filteredArticles.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredArticles.map((a) => a.id)));
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    const confirmed = window.confirm(`${selectedIds.size}件の記事を削除しますか？この操作は取り消せません。`);
+    if (!confirmed) return;
+    let deleted = 0;
+    let errors = 0;
+    for (const id of selectedIds) {
+      try {
+        const result = await window.electronAPI.articles.delete(selectedAccount, id);
+        if (result.success) {
+          deleted++;
+        } else {
+          errors++;
+        }
+      } catch {
+        errors++;
+      }
+    }
+    showToast(`${deleted}件削除しました${errors > 0 ? `（${errors}件失敗）` : ''}`, errors > 0 ? 'warning' : 'success');
+    setSelectedIds(new Set());
+    setSelectionMode(false);
+    setSelectedArticle(null);
+    loadData();
+  };
+
   // GitHub sync handler
   const handleGitHubSync = async () => {
     if (!selectedAccount || syncing) return;
@@ -334,6 +384,30 @@ export default function InboxPage() {
               {accounts.length === 0
                 ? 'アカウントが見つかりません。アカウント管理ページで有効なアカウントを設定してください。'
                 : '左のパネルからアカウントを選択してください。'}
+            </div>
+          )}
+
+          {/* Article bulk actions */}
+          {view === 'articles' && selectedAccount && (
+            <div className="p-3 border-b border-gray-200 flex items-center gap-2">
+              <button
+                onClick={() => { setSelectionMode(!selectionMode); setSelectedIds(new Set()); }}
+                className={`px-3 py-1.5 text-sm rounded border ${
+                  selectionMode
+                    ? 'bg-gray-200 text-gray-700 border-gray-400'
+                    : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                {selectionMode ? '選択解除' : 'まとめて選択'}
+              </button>
+              {selectionMode && selectedIds.size > 0 && (
+                <button
+                  onClick={handleBulkDelete}
+                  className="px-3 py-1.5 text-sm rounded bg-red-600 text-white hover:bg-red-700"
+                >
+                  {selectedIds.size}件を削除
+                </button>
+              )}
             </div>
           )}
 
@@ -417,6 +491,10 @@ export default function InboxPage() {
                 articles={filteredArticles}
                 selectedId={selectedArticle?.id}
                 onSelect={handleArticleSelect}
+                selectionMode={selectionMode}
+                selectedIds={selectedIds}
+                onToggleSelect={handleToggleSelect}
+                onSelectAll={handleSelectAll}
               />
             )}
           </div>
