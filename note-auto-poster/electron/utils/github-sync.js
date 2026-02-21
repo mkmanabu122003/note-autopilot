@@ -721,6 +721,7 @@ class GitHubSync {
       await this._syncRewriteConfig(syncDir);
 
       await git.add([accountId, '.rewrite-config.yml']);
+      await git.raw(['add', '--all', accountId]);
       const statusResult = await git.status();
       if (!statusResult.isClean()) {
         await git.commit(`[auto] 同期 - ${accountId} (${pushed}件)`);
@@ -832,8 +833,9 @@ class GitHubSync {
       // Sync config
       await this._syncRewriteConfig(syncDir);
 
-      // Commit on the edit branch
+      // Commit on the edit branch (use --all to stage deletions too)
       await git.add([accountId, '.rewrite-config.yml']);
+      await git.raw(['add', '--all', accountId]);
       const branchStatus = await git.status();
       if (!branchStatus.isClean()) {
         await git.commit(`[auto] 同期 - ${accountId} (${pushed}件)`);
@@ -852,11 +854,8 @@ class GitHubSync {
       // Go back to main
       await git.checkout('main');
 
-      // Pull remote changes back to local (from main — picks up merged PRs)
-      const pullResult = this._pullToLocal(accountId, syncDir, articlesDir);
-
       this._lastSyncTime = new Date().toISOString();
-      return { success: true, pushed, pulled: pullResult.changes, pr };
+      return { success: true, pushed, pulled: 0, pr };
     } finally {
       this._syncing = false;
     }
