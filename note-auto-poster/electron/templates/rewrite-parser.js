@@ -10,6 +10,7 @@
  *   /rewrite 「quoted text」[instruction]  - Rewrite quoted section
  *   /rewrite undo                          - Revert last rewrite
  *   /rewrite diff [instruction]            - Preview diff without committing
+ *   /rewrite apply                         - Batch apply all /rewrite review comments
  */
 
 const fs = require('fs');
@@ -38,6 +39,11 @@ function parse(comment) {
   // /rewrite undo
   if (rest === 'undo') {
     return { action: 'undo' };
+  }
+
+  // /rewrite apply - batch apply review comments
+  if (rest === 'apply') {
+    return { action: 'apply' };
   }
 
   // /rewrite diff [instruction]

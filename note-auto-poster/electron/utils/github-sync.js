@@ -522,8 +522,8 @@ class GitHubSync {
 
       fs.writeFileSync(path.join(syncDir, '.rewrite-config.yml'), configYaml, 'utf-8');
 
-      // Git add, commit, push
-      await git.add(['.github', '.rewrite-config.yml']);
+      // Git add, commit, push (force to bypass .gitignore)
+      await git.raw(['add', '--force', '.github', '.rewrite-config.yml']);
       const statusResult = await git.status();
       if (!statusResult.isClean()) {
         await git.commit('[setup] AIリライトワークフローを配備');
