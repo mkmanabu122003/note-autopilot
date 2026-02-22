@@ -456,6 +456,26 @@ ipcMain.handle('thumbnails:readAsBase64', (_, filePath) => {
   }
 });
 
+// Log handlers
+ipcMain.handle('logs:get', async (_, opts) => {
+  try {
+    const logger = require('./utils/logger');
+    return logger.getLogs(opts);
+  } catch (e) {
+    return { entries: [], total: 0, page: 1, totalPages: 1, availableDates: [], error: e.message };
+  }
+});
+
+ipcMain.handle('logs:cleanup', async (_, days) => {
+  try {
+    const logger = require('./utils/logger');
+    const deleted = logger.cleanup(days);
+    return { success: true, deleted };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
 app.whenReady().then(createWindow);
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

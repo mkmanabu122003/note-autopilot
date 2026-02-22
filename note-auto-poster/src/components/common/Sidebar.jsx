@@ -5,6 +5,7 @@ const links = [
   { to: '/dashboard', label: 'ダッシュボード', text: '概要' },
   { to: '/accounts', label: 'アカウント管理', text: 'ユーザー' },
   { to: '/settings', label: '設定', text: 'オプション' },
+  { to: '/logs', label: 'エラーログ', text: 'ログ' },
 ];
 
 export default function Sidebar() {
