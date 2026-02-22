@@ -522,8 +522,18 @@ class GitHubSync {
 
       fs.writeFileSync(path.join(syncDir, '.rewrite-config.yml'), configYaml, 'utf-8');
 
+      // Remove .github/ from .gitignore if it was previously added
+      const gitignorePath = path.join(syncDir, '.gitignore');
+      if (fs.existsSync(gitignorePath)) {
+        const gitignore = fs.readFileSync(gitignorePath, 'utf-8');
+        if (gitignore.includes('.github/')) {
+          const cleaned = gitignore.split('\n').filter(l => l.trim() !== '.github/').join('\n');
+          fs.writeFileSync(gitignorePath, cleaned, 'utf-8');
+        }
+      }
+
       // Git add, commit, push (force to bypass .gitignore)
-      await git.raw(['add', '--force', '.github', '.rewrite-config.yml']);
+      await git.raw(['add', '--force', '.github', '.rewrite-config.yml', '.gitignore']);
       const statusResult = await git.status();
       if (!statusResult.isClean()) {
         await git.commit('[setup] AIリライトワークフローを配備');
@@ -662,9 +672,6 @@ class GitHubSync {
 
       await this._ensureMainBranch(git);
 
-      // Remove .github/ from tracking to avoid workflow scope errors
-      await this._removeGithubFromTracking(git, syncDir);
-
       try {
         await git.pull('origin', 'main');
       } catch {
@@ -769,9 +776,6 @@ class GitHubSync {
       const syncDir = await this._getSyncDir();
 
       await this._ensureMainBranch(git);
-
-      // Remove .github/ from tracking to avoid workflow scope errors
-      await this._removeGithubFromTracking(git, syncDir);
 
       // Pull main first to get current state
       try {
@@ -900,46 +904,6 @@ class GitHubSync {
       }
     } catch {
       // Fresh repo - nothing to do
-    }
-  }
-
-  /**
-   * Remove .github/ from git tracking to avoid workflow scope errors on push.
-   * Also adds .github/ to .gitignore.
-   */
-  async _removeGithubFromTracking(git, syncDir) {
-    try {
-      // Add .github/ to .gitignore if not already there
-      const gitignorePath = path.join(syncDir, '.gitignore');
-      let gitignore = '';
-      if (fs.existsSync(gitignorePath)) {
-        gitignore = fs.readFileSync(gitignorePath, 'utf-8');
-      }
-      if (!gitignore.includes('.github/')) {
-        gitignore = gitignore.trimEnd() + '\n.github/\n';
-        fs.writeFileSync(gitignorePath, gitignore, 'utf-8');
-      }
-
-      // Remove .github from git index if tracked
-      try {
-        await git.raw(['rm', '--cached', '-r', '.github']);
-      } catch {
-        // Not tracked - that's fine
-      }
-
-      // Commit if there are changes
-      await git.add('.gitignore');
-      const status = await git.status();
-      if (!status.isClean()) {
-        await git.commit('[auto] .github/ を git 追跡から除外（workflow スコープ不要に）');
-        try {
-          await git.push('origin', 'main');
-        } catch {
-          await git.push(['-u', 'origin', 'main']);
-        }
-      }
-    } catch (err) {
-      console.error('[github-sync] _removeGithubFromTracking error:', err.message);
     }
   }
 
