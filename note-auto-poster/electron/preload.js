@@ -52,6 +52,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setupWorkflow: () => ipcRenderer.invoke('github:setupWorkflow'),
     status: () => ipcRenderer.invoke('github:status'),
   },
+  logs: {
+    get: (opts) => ipcRenderer.invoke('logs:get', opts),
+    cleanup: (days) => ipcRenderer.invoke('logs:cleanup', days),
+  },
   thumbnails: {
     generate: (accountId, article) => ipcRenderer.invoke('thumbnails:generate', accountId, article),
     list: (accountId, articleId) => ipcRenderer.invoke('thumbnails:list', accountId, articleId),

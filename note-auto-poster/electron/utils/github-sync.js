@@ -15,6 +15,7 @@ const path = require('path');
 const fs = require('fs');
 const simpleGit = require('simple-git');
 const frontmatter = require('./frontmatter');
+const logger = require('./logger');
 
 const STATUS_DIR_MAP = {
   generated: 'drafts',
@@ -542,12 +543,24 @@ class GitHubSync {
       // Step 5: Push (always attempt, to handle previously committed but unpushed state)
       try {
         await git.push('origin', 'main');
-      } catch {
+      } catch (pushErr) {
+        const msg = pushErr.message || '';
+        if (msg.includes('workflow') && msg.includes('scope')) {
+          throw new Error(
+            'GitHub トークンに workflow スコープがありません。\n' +
+            'GitHub → Settings → Developer settings → Personal access tokens で\n' +
+            'トークンを再生成し、「workflow」権限を追加してください。'
+          );
+        }
         await git.push(['-u', 'origin', 'main']);
       }
 
+      logger.info('github-sync', `setupWorkflow: ${deployed} files deployed successfully`);
       this._lastSyncTime = new Date().toISOString();
       return { success: true, deployed };
+    } catch (err) {
+      logger.error('github-sync', `setupWorkflow failed: ${err.message}`);
+      throw err;
     } finally {
       this._syncing = false;
     }
@@ -756,8 +769,12 @@ class GitHubSync {
 
       const pullResult = await this._pullToLocal(accountId, syncDir, articlesDir);
 
+      logger.info('github-sync', `sync: ${pushed} pushed, ${pullResult.changes} pulled for ${accountId}`);
       this._lastSyncTime = new Date().toISOString();
       return { success: true, pushed, pulled: pullResult.changes };
+    } catch (err) {
+      logger.error('github-sync', `sync failed for ${accountId}: ${err.message}`);
+      throw err;
     } finally {
       this._syncing = false;
     }
