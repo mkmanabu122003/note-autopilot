@@ -469,11 +469,11 @@ class GitHubSync {
         await git.addRemote('origin', remoteUrl);
       }
 
-      // Pull latest main
+      // Pull latest main (reset any local-only state first)
       try {
         await git.fetch('origin', 'main');
+        await git.reset(['--hard', 'origin/main']);
         await git.checkout('main');
-        await git.pull('origin', 'main');
       } catch {
         // Empty repo or first time - create initial commit if needed
         const statusResult = await git.status();
@@ -482,7 +482,17 @@ class GitHubSync {
         }
       }
 
-      // Deploy workflow files via git
+      // Step 1: Remove .github/ from .gitignore if it was previously added
+      const gitignorePath = path.join(syncDir, '.gitignore');
+      if (fs.existsSync(gitignorePath)) {
+        const gitignore = fs.readFileSync(gitignorePath, 'utf-8');
+        if (gitignore.includes('.github/')) {
+          const cleaned = gitignore.split('\n').filter(l => l.trim() !== '.github/').join('\n');
+          fs.writeFileSync(gitignorePath, cleaned, 'utf-8');
+        }
+      }
+
+      // Step 2: Deploy workflow files
       const filesToDeploy = [
         { repoPath: '.github/workflows/ai-rewrite.yml', templateName: 'ai-rewrite.yml' },
         { repoPath: '.github/scripts/rewrite-parser.js', templateName: 'rewrite-parser.js' },
@@ -500,7 +510,7 @@ class GitHubSync {
         deployed++;
       }
 
-      // Also deploy .rewrite-config.yml
+      // Step 3: Deploy .rewrite-config.yml
       const config = require('./config');
       const writingGuidelines = await config.get('article.writing_guidelines') || '';
       const model = await config.get('api.generation_model') || 'claude-sonnet-4-5-20250929';
@@ -522,26 +532,18 @@ class GitHubSync {
 
       fs.writeFileSync(path.join(syncDir, '.rewrite-config.yml'), configYaml, 'utf-8');
 
-      // Remove .github/ from .gitignore if it was previously added
-      const gitignorePath = path.join(syncDir, '.gitignore');
-      if (fs.existsSync(gitignorePath)) {
-        const gitignore = fs.readFileSync(gitignorePath, 'utf-8');
-        if (gitignore.includes('.github/')) {
-          const cleaned = gitignore.split('\n').filter(l => l.trim() !== '.github/').join('\n');
-          fs.writeFileSync(gitignorePath, cleaned, 'utf-8');
-        }
-      }
-
-      // Git add, commit, push (force to bypass .gitignore)
+      // Step 4: Stage all deployed files (--force bypasses .gitignore during transition)
       await git.raw(['add', '--force', '.github', '.rewrite-config.yml', '.gitignore']);
       const statusResult = await git.status();
       if (!statusResult.isClean()) {
         await git.commit('[setup] AIリライトワークフローを配備');
-        try {
-          await git.push('origin', 'main');
-        } catch {
-          await git.push(['-u', 'origin', 'main']);
-        }
+      }
+
+      // Step 5: Push (always attempt, to handle previously committed but unpushed state)
+      try {
+        await git.push('origin', 'main');
+      } catch {
+        await git.push(['-u', 'origin', 'main']);
       }
 
       this._lastSyncTime = new Date().toISOString();
