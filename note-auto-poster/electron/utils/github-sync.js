@@ -98,8 +98,8 @@ class GitHubSync {
    */
   async _getRemoteUrl() {
     const config = require('./config');
-    const token = await config.get('github.token');
-    const repo = await config.get('github.repository');
+    const token = (await config.get('github.token') || '').trim();
+    const repo = (await config.get('github.repository') || '').trim();
     if (!token || !repo) throw new Error('GitHub設定が不完全です');
     return `https://x-access-token:${token}@github.com/${repo}.git`;
   }
@@ -109,7 +109,7 @@ class GitHubSync {
    */
   async _getApiHeaders() {
     const config = require('./config');
-    const token = await config.get('github.token');
+    const token = (await config.get('github.token') || '').trim();
     if (!token) throw new Error('GitHub トークンが設定されていません');
     return {
       Authorization: `token ${token}`,
@@ -123,7 +123,7 @@ class GitHubSync {
    */
   async _getOwnerRepo() {
     const config = require('./config');
-    const repo = await config.get('github.repository');
+    const repo = (await config.get('github.repository') || '').trim();
     if (!repo || !repo.includes('/')) throw new Error('リポジトリ名が無効です');
     const [owner, name] = repo.split('/');
     return { owner, repo: name };
