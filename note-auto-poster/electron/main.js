@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const logger = require('./utils/logger');
 
 const isDev = !app.isPackaged;
 
@@ -151,7 +152,7 @@ ipcMain.handle('topics:list', async (_, accountId) => {
     const sm = new SheetManager();
     return await sm.readTopics(accountId);
   } catch (e) {
-    console.error('[topics:list] Error:', e.message);
+    logger.error('topics:list', e.message);
     return { error: e.message, topics: [] };
   }
 });
@@ -204,7 +205,7 @@ ipcMain.handle('generator:run', async (_, accountId) => {
     const gen = new Generator();
     return await gen.run(accountId);
   } catch (e) {
-    console.error('[generator:run] Error:', e.message);
+    logger.error('generator:run', e.message);
     return { error: e.message };
   }
 });
@@ -215,7 +216,7 @@ ipcMain.handle('generator:runSingle', async (_, accountId, topicId, regenerateIn
     const gen = new Generator();
     return await gen.runSingle(accountId, topicId, regenerateInstructions);
   } catch (e) {
-    console.error('[generator:runSingle] Error:', e.message);
+    logger.error('generator:runSingle', e.message);
     return { error: e.message };
   }
 });
@@ -262,7 +263,7 @@ ipcMain.handle('articles:list', async (_, accountId) => {
       };
     });
   } catch (e) {
-    console.error('[articles:list] Error:', e.message);
+    logger.error('articles:list', e.message);
     return [];
   }
 });
@@ -312,7 +313,7 @@ ipcMain.handle('articles:update', async (_, accountId, article) => {
           }
         }
       } catch (e) {
-        console.error('[articles:update] GitHub push failed (non-blocking):', e.message);
+        logger.error('articles:update', 'GitHub push failed (non-blocking): ' + e.message);
       }
     }
 
@@ -342,6 +343,7 @@ ipcMain.handle('github:testConnection', async () => {
     githubSync.reset();
     return await githubSync.testConnection();
   } catch (e) {
+    logger.error('github:testConnection', e.message);
     return { success: false, error: e.message };
   }
 });
@@ -351,6 +353,7 @@ ipcMain.handle('github:sync', async (_, accountId) => {
     const { githubSync } = require('./utils/github-sync');
     return await githubSync.sync(accountId);
   } catch (e) {
+    logger.error('github:sync', e.message);
     return { success: false, error: e.message };
   }
 });
@@ -360,6 +363,7 @@ ipcMain.handle('github:syncWithPR', async (_, accountId) => {
     const { githubSync } = require('./utils/github-sync');
     return await githubSync.syncWithPR(accountId);
   } catch (e) {
+    logger.error('github:syncWithPR', e.message);
     return { success: false, error: e.message };
   }
 });
@@ -369,6 +373,7 @@ ipcMain.handle('github:pushArticle', async (_, accountId, filename, status, meta
     const { githubSync } = require('./utils/github-sync');
     return await githubSync.pushArticle(accountId, filename, status, metadata);
   } catch (e) {
+    logger.error('github:pushArticle', e.message);
     return { success: false, error: e.message };
   }
 });
@@ -378,6 +383,7 @@ ipcMain.handle('github:pushArticleToPR', async (_, accountId, filename, status, 
     const { githubSync } = require('./utils/github-sync');
     return await githubSync.pushArticleToPR(accountId, filename, status, metadata);
   } catch (e) {
+    logger.error('github:pushArticleToPR', e.message);
     return { success: false, error: e.message };
   }
 });
@@ -387,6 +393,7 @@ ipcMain.handle('github:pull', async (_, accountId) => {
     const { githubSync } = require('./utils/github-sync');
     return await githubSync.pull(accountId);
   } catch (e) {
+    logger.error('github:pull', e.message);
     return { success: false, error: e.message };
   }
 });
@@ -396,6 +403,7 @@ ipcMain.handle('github:pullWithConflictResolution', async (_, accountId) => {
     const { githubSync } = require('./utils/github-sync');
     return await githubSync.pullWithConflictResolution(accountId);
   } catch (e) {
+    logger.error('github:pullWithConflictResolution', e.message);
     return { success: false, error: e.message };
   }
 });
@@ -405,6 +413,7 @@ ipcMain.handle('github:setupWorkflow', async () => {
     const { githubSync } = require('./utils/github-sync');
     return await githubSync.setupWorkflow();
   } catch (e) {
+    logger.error('github:setupWorkflow', e.message);
     return { success: false, error: e.message };
   }
 });
@@ -424,7 +433,7 @@ ipcMain.handle('thumbnails:generate', async (_, accountId, article) => {
     const thumbnailGenerator = require('./services/thumbnail-generator');
     return await thumbnailGenerator.generateAll(accountId, article);
   } catch (e) {
-    console.error('[thumbnails:generate] Error:', e.message);
+    logger.error('thumbnails:generate', e.message);
     return { error: e.message };
   }
 });
