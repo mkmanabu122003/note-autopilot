@@ -72,6 +72,17 @@ jobs:
           ref: ${{ steps.pr-details.outputs.branch }}
           fetch-depth: 0
 
+      - name: Ensure rewrite scripts exist
+        run: |
+          # PR branch may not have the scripts if it was created before deployment.
+          # Always overlay the latest scripts from the default branch.
+          DEFAULT_BRANCH=$(git remote show origin | grep 'HEAD branch' | awk '{print $NF}')
+          git fetch origin "$DEFAULT_BRANCH"
+          mkdir -p .github/scripts
+          git show "origin/${DEFAULT_BRANCH}:.github/scripts/rewrite-parser.js" > .github/scripts/rewrite-parser.js
+          git show "origin/${DEFAULT_BRANCH}:.github/scripts/rewrite.js" > .github/scripts/rewrite.js
+          git show "origin/${DEFAULT_BRANCH}:.rewrite-config.yml" > .rewrite-config.yml 2>/dev/null || true
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -82,8 +93,11 @@ jobs:
 
       - name: Parse rewrite command
         id: parse
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          PR_BRANCH: ${{ steps.pr-details.outputs.branch }}
         run: |
-          node .github/scripts/rewrite-parser.js '${{ github.event.comment.body }}' '${{ steps.pr-details.outputs.branch }}'
+          node .github/scripts/rewrite-parser.js
 
       - name: Collect review comments for batch apply
         id: batch-collect

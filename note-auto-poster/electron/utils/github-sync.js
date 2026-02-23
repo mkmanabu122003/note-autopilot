@@ -580,6 +580,9 @@ class GitHubSync {
       if (putRes.status === 404) {
         throw new Error(`リポジトリまたはパスが見つかりません: ${repoPath}`);
       }
+      if (putRes.status === 403 && repoPath.includes('.github/workflows')) {
+        throw new Error('ワークフロー配備に失敗しました。GitHubトークンに workflow スコープが必要です。トークンを再生成してください。');
+      }
       if (putRes.status === 409) {
         throw new Error(`ファイルの競合が発生しました (${repoPath})。再試行してください。`);
       }

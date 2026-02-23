@@ -16,8 +16,8 @@
 const fs = require('fs');
 const path = require('path');
 
-const comment = process.argv[2] || '';
-const branch = process.argv[3] || '';
+const comment = process.env.COMMENT_BODY || process.argv[2] || '';
+const branch = process.env.PR_BRANCH || process.argv[3] || '';
 
 function setOutput(key, value) {
   const outputFile = process.env.GITHUB_OUTPUT;
