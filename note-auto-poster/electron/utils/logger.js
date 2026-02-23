@@ -12,7 +12,9 @@ function ensureLogDir() {
 function formatMessage(level, module, message, meta) {
   const timestamp = new Date().toISOString();
   const metaStr = meta ? ` ${JSON.stringify(meta)}` : '';
-  return `[${timestamp}] [${level.toUpperCase()}] [${module}] ${message}${metaStr}`;
+  // Replace newlines with spaces so each log entry stays on a single line
+  const singleLine = String(message).replace(/\r?\n/g, ' ');
+  return `[${timestamp}] [${level.toUpperCase()}] [${module}] ${singleLine}${metaStr}`;
 }
 
 function writeLog(formatted) {
