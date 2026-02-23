@@ -28,6 +28,16 @@ const DIR_STATUS_MAP = Object.fromEntries(
   Object.entries(STATUS_DIR_MAP).map(([k, v]) => [v, k])
 );
 
+/**
+ * Mask tokens in error messages to prevent credential leakage.
+ */
+function maskToken(msg) {
+  return String(msg).replace(
+    /https:\/\/x-access-token:[^@]+@/g,
+    'https://x-access-token:***@'
+  );
+}
+
 class GitHubSync {
   constructor() {
     this._syncDir = null;
@@ -171,7 +181,7 @@ class GitHubSync {
         await git.addRemote('origin', remoteUrl).catch(() => {});
         return { status: 'initialized', syncDir };
       }
-      throw err;
+      throw new Error(maskToken(err.message));
     }
   }
 
@@ -190,7 +200,7 @@ class GitHubSync {
         fs.rmSync(tmpDir, { recursive: true, force: true });
       }
     } catch (err) {
-      return { success: false, error: err.message };
+      return { success: false, error: maskToken(err.message) };
     }
   }
 
@@ -548,8 +558,15 @@ class GitHubSync {
         if (msg.includes('workflow') && msg.includes('scope')) {
           throw new Error(
             'GitHub トークンに workflow スコープがありません。\n' +
-            'GitHub → Settings → Developer settings → Personal access tokens で\n' +
+            'GitHub → Settings → Developer settings → Personal access tokens (classic) で\n' +
             'トークンを再生成し、「workflow」権限を追加してください。'
+          );
+        }
+        if (msg.includes('Authentication failed') || msg.includes('Invalid username')) {
+          throw new Error(
+            'GitHub 認証に失敗しました。トークンが無効または期限切れです。\n' +
+            'Personal access tokens (classic) で repo + workflow スコープ付きの\n' +
+            'トークンを再生成してください。'
           );
         }
         await git.push(['-u', 'origin', 'main']);
@@ -559,8 +576,8 @@ class GitHubSync {
       this._lastSyncTime = new Date().toISOString();
       return { success: true, deployed };
     } catch (err) {
-      logger.error('github-sync', `setupWorkflow failed: ${err.message}`);
-      throw err;
+      logger.error('github-sync', `setupWorkflow failed: ${maskToken(err.message)}`);
+      throw new Error(maskToken(err.message));
     } finally {
       this._syncing = false;
     }
@@ -614,7 +631,7 @@ class GitHubSync {
         if (err.message.includes("Couldn't find remote ref")) {
           return { success: true, changes: 0, message: 'リモートにまだコミットがありません' };
         }
-        throw err;
+        throw new Error(maskToken(err.message));
       }
 
       const articlesDir = this._getArticlesDir(accountId);
@@ -773,8 +790,8 @@ class GitHubSync {
       this._lastSyncTime = new Date().toISOString();
       return { success: true, pushed, pulled: pullResult.changes };
     } catch (err) {
-      logger.error('github-sync', `sync failed for ${accountId}: ${err.message}`);
-      throw err;
+      logger.error('github-sync', `sync failed for ${accountId}: ${maskToken(err.message)}`);
+      throw new Error(maskToken(err.message));
     } finally {
       this._syncing = false;
     }
