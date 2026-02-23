@@ -1,12 +1,21 @@
 const fs = require('fs');
 const path = require('path');
 
-const LOG_DIR = path.join(__dirname, '../../data/logs');
+function getLogDir() {
+  try {
+    const { app } = require('electron');
+    return path.join(app.getPath('userData'), 'data', 'logs');
+  } catch {
+    return path.join(__dirname, '../../data/logs');
+  }
+}
 
 function ensureLogDir() {
-  if (!fs.existsSync(LOG_DIR)) {
-    fs.mkdirSync(LOG_DIR, { recursive: true });
+  const dir = getLogDir();
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
   }
+  return dir;
 }
 
 function formatMessage(level, module, message, meta) {
@@ -19,9 +28,9 @@ function formatMessage(level, module, message, meta) {
 
 function writeLog(formatted) {
   try {
-    ensureLogDir();
+    const dir = ensureLogDir();
     const date = new Date().toISOString().split('T')[0];
-    const logFile = path.join(LOG_DIR, `${date}.log`);
+    const logFile = path.join(dir, `${date}.log`);
     fs.appendFileSync(logFile, formatted + '\n');
   } catch {
     // ログ書き込み失敗は無視
@@ -65,10 +74,10 @@ module.exports = {
    * @returns {{ entries: Array, total: number, page: number, totalPages: number, availableDates: string[] }}
    */
   getLogs({ days = 7, level = 'all', page = 1, pageSize = 50 } = {}) {
-    ensureLogDir();
+    const dir = ensureLogDir();
 
     // List available log files
-    const files = fs.readdirSync(LOG_DIR)
+    const files = fs.readdirSync(dir)
       .filter(f => f.endsWith('.log'))
       .sort()
       .reverse();
@@ -84,7 +93,7 @@ module.exports = {
     let entries = [];
     for (const file of filteredFiles) {
       try {
-        const content = fs.readFileSync(path.join(LOG_DIR, file), 'utf-8');
+        const content = fs.readFileSync(path.join(dir, file), 'utf-8');
         const lines = content.split('\n').filter(Boolean);
         for (const line of lines) {
           const parsed = parseLine(line);
@@ -116,17 +125,17 @@ module.exports = {
    * Delete log files older than the given number of days.
    */
   cleanup(days = 30) {
-    ensureLogDir();
+    const dir = ensureLogDir();
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - days);
     const cutoffStr = cutoff.toISOString().split('T')[0];
 
-    const files = fs.readdirSync(LOG_DIR).filter(f => f.endsWith('.log'));
+    const files = fs.readdirSync(dir).filter(f => f.endsWith('.log'));
     let deleted = 0;
     for (const file of files) {
       if (file.replace('.log', '') < cutoffStr) {
         try {
-          fs.unlinkSync(path.join(LOG_DIR, file));
+          fs.unlinkSync(path.join(dir, file));
           deleted++;
         } catch { /* ignore */ }
       }
