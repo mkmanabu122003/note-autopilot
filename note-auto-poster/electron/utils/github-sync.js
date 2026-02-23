@@ -457,7 +457,7 @@ class GitHubSync {
 
       return { url: newPr.html_url, number: newPr.number, created: true };
     } catch (err) {
-      console.error('[github-sync] PR creation failed:', err.message);
+      logger.error('github-sync', 'PR creation failed: ' + maskToken(err.message));
       return { error: err.message };
     }
   }
@@ -971,7 +971,7 @@ class GitHubSync {
         }
         // Conflict detected - resolve by accepting remote (theirs)
         if (pullErr.message.includes('CONFLICT') || pullErr.message.includes('Merge conflict')) {
-          console.log('[github-sync] Conflict detected, accepting remote changes');
+          logger.info('github-sync', 'Conflict detected, accepting remote changes');
           try {
             await git.raw(['checkout', '--theirs', '.']);
             await git.add('.');
