@@ -47,6 +47,15 @@ describe('GitHubSync._safePull', () => {
     sync = new GitHubSync();
   });
 
+  it('aborts any leftover merge state before pulling', async () => {
+    const git = createMockGit();
+    const result = await sync._safePull(git, 'main');
+    expect(result).toBe(true);
+    // merge --abort is called before pull to clean up stuck state
+    expect(git.merge).toHaveBeenCalledWith(['--abort']);
+    expect(git.pull).toHaveBeenCalledWith('origin', 'main');
+  });
+
   it('returns true when pull succeeds normally', async () => {
     const git = createMockGit();
     const result = await sync._safePull(git, 'main');
@@ -115,6 +124,17 @@ describe('GitHubSync._safePull', () => {
     const result = await sync._safePull(git, 'main');
     expect(result).toBe(true);
     expect(git.raw).toHaveBeenCalledWith(['checkout', '--theirs', '.']);
+  });
+
+  it('handles "Exiting because of an unresolved conflict" error (case-insensitive)', async () => {
+    const git = createMockGit({
+      pull: vi.fn().mockRejectedValue(new Error('Exiting because of an unresolved conflict.')),
+    });
+    const result = await sync._safePull(git, 'main');
+    expect(result).toBe(true);
+    expect(git.raw).toHaveBeenCalledWith(['checkout', '--theirs', '.']);
+    expect(git.add).toHaveBeenCalledWith('.');
+    expect(git.commit).toHaveBeenCalledWith('[auto] 競合解決: リモート側の変更を優先');
   });
 });
 
