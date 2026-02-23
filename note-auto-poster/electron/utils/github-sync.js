@@ -186,19 +186,24 @@ class GitHubSync {
   }
 
   /**
-   * Test the connection to the GitHub repository.
+   * Test the connection to the GitHub repository using the REST API.
    */
   async testConnection() {
     try {
-      const remoteUrl = await this._getRemoteUrl();
-      const tmpDir = path.join(require('os').tmpdir(), `gh-test-${Date.now()}`);
-      fs.mkdirSync(tmpDir, { recursive: true });
-      try {
-        await simpleGit(tmpDir).listRemote([remoteUrl]);
+      const headers = await this._getApiHeaders();
+      const { owner, repo } = await this._getOwnerRepo();
+      const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers });
+      if (res.ok) {
         return { success: true };
-      } finally {
-        fs.rmSync(tmpDir, { recursive: true, force: true });
       }
+      const text = await res.text();
+      if (res.status === 401) {
+        return { success: false, error: 'トークンが無効です。再生成してください。' };
+      }
+      if (res.status === 404) {
+        return { success: false, error: `リポジトリ ${owner}/${repo} が見つかりません。名前とアクセス権を確認してください。` };
+      }
+      return { success: false, error: `GitHub API ${res.status}: ${text}` };
     } catch (err) {
       return { success: false, error: maskToken(err.message) };
     }
@@ -461,7 +466,7 @@ class GitHubSync {
 
   /**
    * Deploy GitHub Actions workflow and rewrite scripts via GitHub Contents API.
-   * This avoids the need for the 'workflow' scope on the PAT.
+   * Uses the REST API instead of git push, so no 'workflow' scope is needed.
    */
   async setupWorkflow() {
     if (this._syncing) return { skipped: true, reason: 'sync in progress' };
@@ -469,59 +474,14 @@ class GitHubSync {
     try {
       this._syncing = true;
 
-      const syncDir = await this._getSyncDir();
-      const git = simpleGit(syncDir);
-
-      // Initialize repo if needed
-      if (!fs.existsSync(path.join(syncDir, '.git'))) {
-        fs.mkdirSync(syncDir, { recursive: true });
-        await git.init();
-        const remoteUrl = await this._getRemoteUrl();
-        await git.addRemote('origin', remoteUrl);
-      }
-
-      // Pull latest main (reset any local-only state first)
-      try {
-        await git.fetch('origin', 'main');
-        await git.reset(['--hard', 'origin/main']);
-        await git.checkout('main');
-      } catch {
-        // Empty repo or first time - create initial commit if needed
-        const statusResult = await git.status();
-        if (statusResult.current !== 'main') {
-          try { await git.checkout('main'); } catch { await git.checkoutLocalBranch('main'); }
-        }
-      }
-
-      // Step 1: Remove .github/ from .gitignore if it was previously added
-      const gitignorePath = path.join(syncDir, '.gitignore');
-      if (fs.existsSync(gitignorePath)) {
-        const gitignore = fs.readFileSync(gitignorePath, 'utf-8');
-        if (gitignore.includes('.github/')) {
-          const cleaned = gitignore.split('\n').filter(l => l.trim() !== '.github/').join('\n');
-          fs.writeFileSync(gitignorePath, cleaned, 'utf-8');
-        }
-      }
-
-      // Step 2: Deploy workflow files
+      // Build the list of files to deploy
       const filesToDeploy = [
         { repoPath: '.github/workflows/ai-rewrite.yml', templateName: 'ai-rewrite.yml' },
         { repoPath: '.github/scripts/rewrite-parser.js', templateName: 'rewrite-parser.js' },
         { repoPath: '.github/scripts/rewrite.js', templateName: 'rewrite.js' },
       ];
 
-      let deployed = 0;
-      for (const { repoPath, templateName } of filesToDeploy) {
-        const templatePath = path.join(__dirname, '..', 'templates', templateName);
-        const content = fs.readFileSync(templatePath, 'utf-8');
-
-        const targetPath = path.join(syncDir, repoPath);
-        fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-        fs.writeFileSync(targetPath, content, 'utf-8');
-        deployed++;
-      }
-
-      // Step 3: Deploy .rewrite-config.yml
+      // Build .rewrite-config.yml content
       const config = require('./config');
       const writingGuidelines = await config.get('article.writing_guidelines') || '';
       const model = await config.get('api.generation_model') || 'claude-sonnet-4-5-20250929';
@@ -541,38 +501,27 @@ class GitHubSync {
         '  <!-- paid-line --> の位置は変更しないでください。',
       ].join('\n');
 
-      fs.writeFileSync(path.join(syncDir, '.rewrite-config.yml'), configYaml, 'utf-8');
+      filesToDeploy.push({
+        repoPath: '.rewrite-config.yml',
+        content: configYaml,
+      });
 
-      // Step 4: Stage all deployed files (--force bypasses .gitignore during transition)
-      await git.raw(['add', '--force', '.github', '.rewrite-config.yml', '.gitignore']);
-      const statusResult = await git.status();
-      if (!statusResult.isClean()) {
-        await git.commit('[setup] AIリライトワークフローを配備');
+      // Deploy each file via GitHub Contents API
+      let deployed = 0;
+      for (const file of filesToDeploy) {
+        let content;
+        if (file.content) {
+          content = file.content;
+        } else {
+          const templatePath = path.join(__dirname, '..', 'templates', file.templateName);
+          content = fs.readFileSync(templatePath, 'utf-8');
+        }
+
+        const updated = await this._putFileViaApi(file.repoPath, content, '[setup] AIリライトワークフローを配備');
+        if (updated) deployed++;
       }
 
-      // Step 5: Push (always attempt, to handle previously committed but unpushed state)
-      try {
-        await git.push('origin', 'main');
-      } catch (pushErr) {
-        const msg = pushErr.message || '';
-        if (msg.includes('workflow') && msg.includes('scope')) {
-          throw new Error(
-            'GitHub トークンに workflow スコープがありません。\n' +
-            'GitHub → Settings → Developer settings → Personal access tokens (classic) で\n' +
-            'トークンを再生成し、「workflow」権限を追加してください。'
-          );
-        }
-        if (msg.includes('Authentication failed') || msg.includes('Invalid username')) {
-          throw new Error(
-            'GitHub 認証に失敗しました。トークンが無効または期限切れです。\n' +
-            'Personal access tokens (classic) で repo + workflow スコープ付きの\n' +
-            'トークンを再生成してください。'
-          );
-        }
-        await git.push(['-u', 'origin', 'main']);
-      }
-
-      logger.info('github-sync', `setupWorkflow: ${deployed} files deployed successfully`);
+      logger.info('github-sync', `setupWorkflow: ${deployed} files deployed via Contents API`);
       this._lastSyncTime = new Date().toISOString();
       return { success: true, deployed };
     } catch (err) {
@@ -581,6 +530,57 @@ class GitHubSync {
     } finally {
       this._syncing = false;
     }
+  }
+
+  /**
+   * Create or update a file in the repository via the GitHub Contents API.
+   * Returns true if the file was created/updated, false if unchanged.
+   */
+  async _putFileViaApi(repoPath, content, commitMessage) {
+    const headers = await this._getApiHeaders();
+    const { owner, repo } = await this._getOwnerRepo();
+    const url = `https://api.github.com/repos/${owner}/${repo}/contents/${repoPath}`;
+
+    const contentBase64 = Buffer.from(content, 'utf-8').toString('base64');
+
+    // Check if the file already exists (to get its SHA for updates)
+    let existingSha = null;
+    const getRes = await fetch(url, { headers });
+    if (getRes.ok) {
+      const existing = await getRes.json();
+      // Compare content — skip if unchanged
+      if (existing.content && existing.content.replace(/\n/g, '') === contentBase64.replace(/\n/g, '')) {
+        return false;
+      }
+      existingSha = existing.sha;
+    }
+
+    const body = {
+      message: commitMessage,
+      content: contentBase64,
+    };
+    if (existingSha) {
+      body.sha = existingSha;
+    }
+
+    const putRes = await fetch(url, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(body),
+    });
+
+    if (!putRes.ok) {
+      const text = await putRes.text();
+      if (putRes.status === 401) {
+        throw new Error('GitHub トークンが無効です。再生成してください。');
+      }
+      if (putRes.status === 404) {
+        throw new Error(`リポジトリまたはパスが見つかりません: ${repoPath}`);
+      }
+      throw new Error(`GitHub API ${putRes.status} (${repoPath}): ${text}`);
+    }
+
+    return true;
   }
 
   /**
