@@ -911,17 +911,21 @@ class GitHubSync {
    * Returns true if pull succeeded (with or without conflict resolution).
    */
   async _safePull(git, remoteBranch = 'main') {
+    // Abort any leftover merge state from a previous failed operation
+    try { await git.merge(['--abort']); } catch { /* no merge in progress — ignore */ }
+
     try {
       await git.pull('origin', remoteBranch);
       return true;
     } catch (pullErr) {
       const msg = pullErr.message || '';
+      const msgLower = msg.toLowerCase();
       // Remote is empty or branch doesn't exist yet — not an error
       if (msg.includes("Couldn't find remote ref") || msg.includes('empty')) {
         return true;
       }
       // Merge conflict — resolve by accepting remote (theirs)
-      if (msg.includes('CONFLICT') || msg.includes('Merge conflict') || msg.includes('not possible because you have unmerged files')) {
+      if (msgLower.includes('conflict') || msgLower.includes('unmerged files')) {
         logger.info('github-sync', `Conflict detected during pull of ${remoteBranch}, resolving with theirs`);
         try {
           await git.raw(['checkout', '--theirs', '.']);
@@ -960,7 +964,8 @@ class GitHubSync {
       await git.merge([branch]);
     } catch (mergeErr) {
       const msg = mergeErr.message || '';
-      if (msg.includes('CONFLICT') || msg.includes('Merge conflict') || msg.includes('not possible because you have unmerged files')) {
+      const msgLower = msg.toLowerCase();
+      if (msgLower.includes('conflict') || msgLower.includes('unmerged files')) {
         logger.info('github-sync', `Conflict during merge of ${branch}, resolving with theirs`);
         try {
           await git.raw(['checkout', '--theirs', '.']);
@@ -1011,14 +1016,18 @@ class GitHubSync {
 
       await this._ensureMainBranch(git);
 
+      // Abort any leftover merge state from a previous failed operation
+      try { await git.merge(['--abort']); } catch { /* no merge in progress — ignore */ }
+
       try {
         await git.pull('origin', 'main');
       } catch (pullErr) {
+        const msgLower = (pullErr.message || '').toLowerCase();
         if (pullErr.message.includes("Couldn't find remote ref")) {
           return { success: true, changes: 0, conflicts: 0 };
         }
         // Conflict detected - resolve by accepting remote (theirs)
-        if (pullErr.message.includes('CONFLICT') || pullErr.message.includes('Merge conflict')) {
+        if (msgLower.includes('conflict') || msgLower.includes('unmerged files')) {
           logger.info('github-sync', 'Conflict detected, accepting remote changes');
           try {
             await git.raw(['checkout', '--theirs', '.']);
