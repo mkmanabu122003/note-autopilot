@@ -211,11 +211,26 @@ async function processBatch(client, model, systemPrompt, edits, isDryRun) {
   const summaryParts = [];
 
   for (const [filePath, fileEdits] of Object.entries(editsByFile)) {
-    const absPath = path.join(process.cwd(), filePath);
+    let absPath = path.join(process.cwd(), filePath);
     if (!fs.existsSync(absPath)) {
-      console.error(`ファイルが見つかりません: ${filePath}`);
-      summaryParts.push(`- **${filePath}**: ファイルが見つかりません`);
-      continue;
+      // Fallback: search by basename (handles Unicode normalization differences
+      // between GitHub API paths and filesystem paths)
+      const basename = path.basename(filePath);
+      const found = findFiles(basename);
+      if (found.length > 0) {
+        absPath = found[0];
+        console.log(`パス不一致のため検索で解決: ${filePath} → ${path.relative(process.cwd(), absPath)}`);
+      } else {
+        console.error(`ファイルが見つかりません: ${filePath}`);
+        // List available files for debugging
+        const allFiles = findFiles('');
+        if (allFiles.length > 0) {
+          console.error('リポジトリ内のファイル:');
+          allFiles.forEach(f => console.error(`  - ${path.relative(process.cwd(), f)}`));
+        }
+        summaryParts.push(`- **${filePath}**: ファイルが見つかりません`);
+        continue;
+      }
     }
 
     let content = fs.readFileSync(absPath, 'utf-8');
@@ -291,7 +306,8 @@ async function processBatch(client, model, systemPrompt, edits, isDryRun) {
   ].join('\n');
 
   fs.writeFileSync('/tmp/rewrite-summary.md', summary, 'utf-8');
-  setOutput('success', 'true');
+  const hasChanges = totalChanges > 0;
+  setOutput('success', hasChanges ? 'true' : 'false');
   setOutput('changes', String(totalChanges));
   console.log('一括リライト完了:', summary);
 }

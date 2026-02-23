@@ -238,25 +238,28 @@ jobs:
             });
 
       - name: Comment batch apply result and reply to review comments
-        if: steps.parse.outputs.action == 'apply' && steps.batch-rewrite.outputs.success == 'true'
+        if: steps.parse.outputs.action == 'apply' && steps.batch-rewrite.conclusion == 'success'
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
+            const success = '${{ steps.batch-rewrite.outputs.success }}' === 'true';
 
             // Reply to each review comment
             const commentIds = '${{ steps.batch-collect.outputs.comment_ids }}'.split(',');
-            for (const id of commentIds) {
-              try {
-                await github.rest.pulls.createReplyForReviewComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  pull_number: context.issue.number,
-                  comment_id: parseInt(id),
-                  body: '✅ リライト適用済み',
-                });
-              } catch (e) {
-                console.log(`Failed to reply to comment ${id}: ${e.message}`);
+            if (success) {
+              for (const id of commentIds) {
+                try {
+                  await github.rest.pulls.createReplyForReviewComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    pull_number: context.issue.number,
+                    comment_id: parseInt(id),
+                    body: '✅ リライト適用済み',
+                  });
+                } catch (e) {
+                  console.log(`Failed to reply to comment ${id}: ${e.message}`);
+                }
               }
             }
 
@@ -265,13 +268,15 @@ jobs:
             try {
               summary = fs.readFileSync('/tmp/rewrite-summary.md', 'utf-8');
             } catch {
-              summary = 'リライトが完了しました。';
+              summary = success ? 'リライトが完了しました。' : 'リライトに失敗しました。';
             }
+            const emoji = success ? '✅' : '⚠️';
+            const label = success ? '一括リライト完了' : '一括リライト失敗';
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: `✅ 一括リライト完了（${commentIds.length}件）\n\n${summary}`,
+              body: `${emoji} ${label}（${commentIds.length}件）\n\n${summary}`,
             });
 
       - name: Comment undo result
