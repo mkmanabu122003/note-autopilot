@@ -3,6 +3,17 @@ name: AI Rewrite
 on:
   issue_comment:
     types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR番号'
+        required: true
+        type: number
+      command:
+        description: 'リライトコマンド (例: /rewrite apply)'
+        required: true
+        default: '/rewrite apply'
+        type: string
 
 permissions:
   contents: write
@@ -11,15 +22,30 @@ permissions:
 
 jobs:
   rewrite:
-    # Only run on PR comments starting with /rewrite
+    # Run on PR comments starting with /rewrite, or manual dispatch
     if: >
-      github.event.issue.pull_request &&
-      startsWith(github.event.comment.body, '/rewrite')
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/rewrite'))
     runs-on: ubuntu-latest
 
     steps:
+      - name: Set PR number and comment body
+        id: context
+        uses: actions/github-script@v7
+        with:
+          script: |
+            if (context.eventName === 'workflow_dispatch') {
+              core.setOutput('pr_number', '${{ github.event.inputs.pr_number }}');
+              core.setOutput('comment_body', '${{ github.event.inputs.command }}');
+            } else {
+              core.setOutput('pr_number', String(context.issue.number));
+              core.setOutput('comment_body', context.payload.comment.body);
+            }
+
       - name: Check rate limit
         id: rate-check
+        if: github.event_name == 'issue_comment'
         uses: actions/github-script@v7
         with:
           script: |
@@ -41,6 +67,7 @@ jobs:
             core.setOutput('count', rewriteCount);
 
       - name: Check write permission
+        if: github.event_name == 'issue_comment'
         uses: actions/github-script@v7
         with:
           script: |
@@ -58,10 +85,11 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            const prNumber = parseInt('${{ steps.context.outputs.pr_number }}');
             const { data: pr } = await github.rest.pulls.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              pull_number: context.issue.number,
+              pull_number: prNumber,
             });
             core.setOutput('branch', pr.head.ref);
             core.setOutput('sha', pr.head.sha);
@@ -72,12 +100,19 @@ jobs:
           ref: ${{ steps.pr-details.outputs.branch }}
           fetch-depth: 0
 
-      - name: Ensure scripts are available from main
+      - name: Fetch main branch and ensure scripts
         run: |
+          git fetch origin main:refs/remotes/origin/main || true
           if [ ! -f .github/scripts/rewrite-parser.js ] || [ ! -f .github/scripts/rewrite.js ]; then
             echo "Scripts not found on PR branch, copying from main..."
-            git checkout origin/main -- .github/scripts/ 2>/dev/null || echo "::warning::Scripts not found on main branch either. Run setupWorkflow from the app."
+            git checkout origin/main -- .github/scripts/ 2>/dev/null || echo "::error::Scripts not found on main branch either. Run setupWorkflow from the app."
+            if [ ! -f .github/scripts/rewrite-parser.js ]; then
+              echo "::error::rewrite-parser.js is still missing after fetch"
+              exit 1
+            fi
           fi
+          echo "Scripts available:"
+          ls -la .github/scripts/
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -89,8 +124,11 @@ jobs:
 
       - name: Parse rewrite command
         id: parse
+        env:
+          COMMENT_BODY: ${{ steps.context.outputs.comment_body }}
+          PR_BRANCH: ${{ steps.pr-details.outputs.branch }}
         run: |
-          node .github/scripts/rewrite-parser.js '${{ github.event.comment.body }}' '${{ steps.pr-details.outputs.branch }}'
+          node .github/scripts/rewrite-parser.js "$COMMENT_BODY" "$PR_BRANCH"
 
       - name: Collect review comments for batch apply
         id: batch-collect
@@ -98,13 +136,15 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            const prNumber = parseInt('${{ steps.context.outputs.pr_number }}');
+
             // Fetch all review comments on this PR
             const allComments = await github.paginate(
               github.rest.pulls.listReviewComments,
               {
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                pull_number: context.issue.number,
+                pull_number: prNumber,
               }
             );
 
@@ -155,7 +195,7 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           BATCH_FILE: /tmp/batch-edits.json
-          PR_NUMBER: ${{ github.event.issue.number }}
+          PR_NUMBER: ${{ steps.context.outputs.pr_number }}
         run: |
           node .github/scripts/rewrite.js
 
@@ -169,7 +209,7 @@ jobs:
           LINE_END: ${{ steps.parse.outputs.line_end }}
           QUOTE_TEXT: ${{ steps.parse.outputs.quote_text }}
           INSTRUCTION: ${{ steps.parse.outputs.instruction }}
-          PR_NUMBER: ${{ github.event.issue.number }}
+          PR_NUMBER: ${{ steps.context.outputs.pr_number }}
         run: |
           node .github/scripts/rewrite.js
 
@@ -223,6 +263,7 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            const prNumber = parseInt('${{ steps.context.outputs.pr_number }}');
             const fs = require('fs');
             let summary = '';
             try {
@@ -233,7 +274,7 @@ jobs:
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.issue.number,
+              issue_number: prNumber,
               body: `✅ リライト完了\n\n${summary}`,
             });
 
@@ -242,6 +283,7 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            const prNumber = parseInt('${{ steps.context.outputs.pr_number }}');
             const fs = require('fs');
             const success = '${{ steps.batch-rewrite.outputs.success }}' === 'true';
 
@@ -253,7 +295,7 @@ jobs:
                   await github.rest.pulls.createReplyForReviewComment({
                     owner: context.repo.owner,
                     repo: context.repo.repo,
-                    pull_number: context.issue.number,
+                    pull_number: prNumber,
                     comment_id: parseInt(id),
                     body: '✅ リライト適用済み',
                   });
@@ -275,7 +317,7 @@ jobs:
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.issue.number,
+              issue_number: prNumber,
               body: `${emoji} ${label}（${commentIds.length}件）\n\n${summary}`,
             });
 
@@ -284,20 +326,21 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            const prNumber = parseInt('${{ steps.context.outputs.pr_number }}');
             const reverted = '${{ steps.undo.outputs.reverted }}';
             const error = '${{ steps.undo.outputs.error }}';
             if (error) {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                issue_number: context.issue.number,
+                issue_number: prNumber,
                 body: `❌ Undo 失敗: ${error}`,
               });
             } else {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                issue_number: context.issue.number,
+                issue_number: prNumber,
                 body: `↩️ 直前のリライトを取り消しました（${reverted.substring(0, 7)}）`,
               });
             }
@@ -307,6 +350,7 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            const prNumber = parseInt('${{ steps.context.outputs.pr_number }}');
             const fs = require('fs');
             let diff = '';
             try {
@@ -317,7 +361,7 @@ jobs:
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.issue.number,
+              issue_number: prNumber,
               body: `📝 リライト差分プレビュー（コミットなし）\n\n${diff}`,
             });
 
@@ -326,10 +370,12 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            const prNumber = parseInt('${{ steps.context.outputs.pr_number }}');
+            if (!prNumber) return;
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.issue.number,
+              issue_number: prNumber,
               body: [
                 '❌ リライトに失敗しました',
                 '',

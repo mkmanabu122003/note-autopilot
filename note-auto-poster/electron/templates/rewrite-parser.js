@@ -24,7 +24,6 @@ function setOutput(key, value) {
   if (outputFile) {
     fs.appendFileSync(outputFile, `${key}=${value}\n`);
   }
-  console.log(`::set-output name=${key}::${value}`);
 }
 
 function parse(comment) {
