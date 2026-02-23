@@ -169,6 +169,17 @@ class Generator {
         console.error('[generator] GitHub push failed (non-blocking):', e.message);
       }
 
+      // Auto-send to Telegram if enabled
+      try {
+        const telegramEnabled = await config.get('telegram.enabled');
+        if (telegramEnabled) {
+          const { telegramService } = require('./telegram');
+          await telegramService.sendArticleForReview(accountId, { title, body: articleText, filename });
+        }
+      } catch (e) {
+        console.error('[generator] Telegram send failed (non-blocking):', e.message);
+      }
+
       return {
         success: true,
         article: {
@@ -230,6 +241,20 @@ class Generator {
           }
         } catch (e) {
           console.error('[generator:batch] GitHub push failed (non-blocking):', e.message);
+        }
+
+        // Auto-send to Telegram if enabled
+        try {
+          const telegramEnabled = await config.get('telegram.enabled');
+          if (telegramEnabled) {
+            const { telegramService } = require('./telegram');
+            const lines = articleText.split('\n');
+            const title = (lines[0] || '').replace(/^#+\s*/, '').trim();
+            const fname = path.basename(articlePath);
+            await telegramService.sendArticleForReview(accountId, { title, body: articleText, filename: fname });
+          }
+        } catch (e) {
+          console.error('[generator:batch] Telegram send failed (non-blocking):', e.message);
         }
 
         results.push({ topic: topic.theme, topicId: topic.id, status: 'success', articlePath });

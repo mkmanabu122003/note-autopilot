@@ -52,6 +52,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setupWorkflow: () => ipcRenderer.invoke('github:setupWorkflow'),
     status: () => ipcRenderer.invoke('github:status'),
   },
+  telegram: {
+    testConnection: () => ipcRenderer.invoke('telegram:testConnection'),
+    detectChatId: () => ipcRenderer.invoke('telegram:detectChatId'),
+    startPolling: () => ipcRenderer.invoke('telegram:startPolling'),
+    stopPolling: () => ipcRenderer.invoke('telegram:stopPolling'),
+    status: () => ipcRenderer.invoke('telegram:status'),
+    sendArticle: (accountId, article) => ipcRenderer.invoke('telegram:sendArticle', accountId, article),
+    onArticleStatusChanged: (callback) => {
+      ipcRenderer.on('telegram:articleStatusChanged', (_, accountId, filename, status) => callback(accountId, filename, status));
+    },
+    onArticleUpdated: (callback) => {
+      ipcRenderer.on('telegram:articleUpdated', (_, accountId, filename) => callback(accountId, filename));
+    },
+  },
   logs: {
     get: (opts) => ipcRenderer.invoke('logs:get', opts),
     cleanup: (days) => ipcRenderer.invoke('logs:cleanup', days),
