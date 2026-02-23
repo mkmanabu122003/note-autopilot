@@ -227,11 +227,7 @@ class GitHubSync {
       await this._ensureMainBranch(git);
 
       // Pull first to avoid conflicts
-      try {
-        await git.pull('origin', 'main', { '--rebase': 'true' });
-      } catch {
-        // Might fail if remote is empty
-      }
+      await this._safePull(git, 'main');
 
       // Read the local article
       const articlesDir = this._getArticlesDir(accountId);
@@ -311,18 +307,14 @@ class GitHubSync {
 
       // Ensure main is up to date
       await this._ensureMainBranch(git);
-      try {
-        await git.pull('origin', 'main', { '--rebase': 'true' });
-      } catch {
-        // Remote might be empty
-      }
+      await this._safePull(git, 'main');
 
       // Create or checkout the edit branch
       const branches = await git.branchLocal();
       if (branches.all.includes(branchName)) {
         await git.checkout(branchName);
         // Merge main into it to stay up-to-date
-        try { await git.merge(['main']); } catch { /* ignore */ }
+        await this._safeMerge(git, 'main');
       } else {
         await git.checkoutLocalBranch(branchName);
       }
@@ -631,14 +623,7 @@ class GitHubSync {
 
       await this._ensureMainBranch(git);
 
-      try {
-        await git.pull('origin', 'main');
-      } catch (err) {
-        if (err.message.includes("Couldn't find remote ref")) {
-          return { success: true, changes: 0, message: 'リモートにまだコミットがありません' };
-        }
-        throw new Error(maskToken(err.message));
-      }
+      await this._safePull(git, 'main');
 
       const articlesDir = this._getArticlesDir(accountId);
       if (!fs.existsSync(articlesDir)) {
@@ -710,11 +695,7 @@ class GitHubSync {
 
       await this._ensureMainBranch(git);
 
-      try {
-        await git.pull('origin', 'main');
-      } catch {
-        // Ignore if remote is empty
-      }
+      await this._safePull(git, 'main');
 
       const articlesDir = this._getArticlesDir(accountId);
       if (!fs.existsSync(articlesDir)) {
@@ -820,9 +801,7 @@ class GitHubSync {
       await this._ensureMainBranch(git);
 
       // Pull main first to get current state
-      try {
-        await git.pull('origin', 'main');
-      } catch { /* empty repo */ }
+      await this._safePull(git, 'main');
 
       const articlesDir = this._getArticlesDir(accountId);
       if (!fs.existsSync(articlesDir)) {
@@ -836,7 +815,7 @@ class GitHubSync {
       const branches = await git.branchLocal();
       if (branches.all.includes(branchName)) {
         await git.checkout(branchName);
-        try { await git.merge(['main']); } catch { /* ignore */ }
+        await this._safeMerge(git, 'main');
       } else {
         await git.checkoutLocalBranch(branchName);
       }
@@ -925,6 +904,75 @@ class GitHubSync {
   }
 
   // ─── Phase 3: Improved conflict resolution ───
+
+  /**
+   * Safely pull from a remote branch, resolving merge conflicts automatically.
+   * If a conflict occurs, accept remote changes (theirs) and commit the resolution.
+   * Returns true if pull succeeded (with or without conflict resolution).
+   */
+  async _safePull(git, remoteBranch = 'main') {
+    try {
+      await git.pull('origin', remoteBranch);
+      return true;
+    } catch (pullErr) {
+      const msg = pullErr.message || '';
+      // Remote is empty or branch doesn't exist yet — not an error
+      if (msg.includes("Couldn't find remote ref") || msg.includes('empty')) {
+        return true;
+      }
+      // Merge conflict — resolve by accepting remote (theirs)
+      if (msg.includes('CONFLICT') || msg.includes('Merge conflict') || msg.includes('not possible because you have unmerged files')) {
+        logger.info('github-sync', `Conflict detected during pull of ${remoteBranch}, resolving with theirs`);
+        try {
+          await git.raw(['checkout', '--theirs', '.']);
+          await git.add('.');
+          await git.commit('[auto] 競合解決: リモート側の変更を優先');
+          return true;
+        } catch (resolveErr) {
+          // Resolution failed — abort merge and reset to remote
+          logger.error('github-sync', `Conflict resolution failed: ${maskToken(resolveErr.message)}`);
+          try { await git.merge(['--abort']); } catch { /* ignore */ }
+          try { await git.raw(['reset', '--hard', `origin/${remoteBranch}`]); } catch { /* ignore */ }
+          return true;
+        }
+      }
+      // Pull failed due to dirty working tree — stash, pull, pop
+      if (msg.includes('local changes') || msg.includes('overwritten by merge') || msg.includes('Your local changes')) {
+        logger.info('github-sync', 'Dirty working tree detected, stashing before pull');
+        try {
+          await git.stash();
+          await git.pull('origin', remoteBranch);
+          try { await git.stash(['pop']); } catch { /* stash pop conflict — drop stash */ await git.stash(['drop']).catch(() => {}); }
+          return true;
+        } catch {
+          return true;
+        }
+      }
+      throw pullErr;
+    }
+  }
+
+  /**
+   * Safely merge a branch, resolving conflicts by accepting theirs.
+   */
+  async _safeMerge(git, branch) {
+    try {
+      await git.merge([branch]);
+    } catch (mergeErr) {
+      const msg = mergeErr.message || '';
+      if (msg.includes('CONFLICT') || msg.includes('Merge conflict') || msg.includes('not possible because you have unmerged files')) {
+        logger.info('github-sync', `Conflict during merge of ${branch}, resolving with theirs`);
+        try {
+          await git.raw(['checkout', '--theirs', '.']);
+          await git.add('.');
+          await git.commit(`[auto] 競合解決: ${branch}のマージ`);
+        } catch {
+          try { await git.merge(['--abort']); } catch { /* ignore */ }
+        }
+      }
+      // Other merge errors are non-fatal (e.g. "already up to date")
+    }
+  }
 
   /**
    * Ensure we are on the main branch safely.
