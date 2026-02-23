@@ -112,7 +112,7 @@ class GitHubSync {
     const token = (await config.get('github.token') || '').trim();
     if (!token) throw new Error('GitHub トークンが設定されていません');
     return {
-      Authorization: `token ${token}`,
+      Authorization: `Bearer ${token}`,
       Accept: 'application/vnd.github.v3+json',
       'Content-Type': 'application/json',
     };
@@ -548,11 +548,14 @@ class GitHubSync {
     const getRes = await fetch(url, { headers });
     if (getRes.ok) {
       const existing = await getRes.json();
-      // Compare content — skip if unchanged
-      if (existing.content && existing.content.replace(/\n/g, '') === contentBase64.replace(/\n/g, '')) {
+      existingSha = existing.sha;
+      // Compare using git blob SHA — skip if content is unchanged
+      const { createHash } = require('crypto');
+      const blob = `blob ${Buffer.byteLength(content, 'utf-8')}\0${content}`;
+      const localSha = createHash('sha1').update(blob).digest('hex');
+      if (existingSha === localSha) {
         return false;
       }
-      existingSha = existing.sha;
     }
 
     const body = {
@@ -577,7 +580,10 @@ class GitHubSync {
       if (putRes.status === 404) {
         throw new Error(`リポジトリまたはパスが見つかりません: ${repoPath}`);
       }
-      throw new Error(`GitHub API ${putRes.status} (${repoPath}): ${text}`);
+      if (putRes.status === 409) {
+        throw new Error(`ファイルの競合が発生しました (${repoPath})。再試行してください。`);
+      }
+      throw new Error(maskToken(`GitHub API ${putRes.status} (${repoPath}): ${text}`));
     }
 
     return true;
