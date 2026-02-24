@@ -527,6 +527,18 @@ ipcMain.handle('telegram:sendArticle', async (_, accountId, article) => {
   }
 });
 
+ipcMain.handle('telegram:isLinked', async (_, accountId, filename) => {
+  try {
+    const { telegramService } = require('./services/telegram');
+    await telegramService.init();
+    const mapping = telegramService.mappings[accountId]?.[filename];
+    return { linked: !!mapping, mapping: mapping || null };
+  } catch (e) {
+    logger.error('telegram:isLinked', e.message);
+    return { linked: false, mapping: null };
+  }
+});
+
 // Log handlers
 ipcMain.handle('logs:get', async (_, opts) => {
   try {

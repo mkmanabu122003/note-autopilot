@@ -40,6 +40,39 @@ export default function ArticlePreview({ article, accountId, onUpdate, onClose, 
   const [rejected, setRejected] = useState(article.status === 'rejected');
   const [showRegenerateForm, setShowRegenerateForm] = useState(false);
   const [regenerateInstructions, setRegenerateInstructions] = useState('');
+  const [telegramLinked, setTelegramLinked] = useState(null);
+  const [sendingToTelegram, setSendingToTelegram] = useState(false);
+
+  // Check Telegram linking status
+  useEffect(() => {
+    if (!article.filename || !accountId) return;
+    setTelegramLinked(null);
+    window.electronAPI.telegram
+      .isLinked(accountId, article.filename)
+      .then((result) => setTelegramLinked(result.linked))
+      .catch(() => setTelegramLinked(false));
+  }, [accountId, article.filename, article.id]);
+
+  const handleSendToTelegram = async () => {
+    setSendingToTelegram(true);
+    try {
+      const result = await window.electronAPI.telegram.sendArticle(accountId, {
+        title: article.title,
+        body: article.body,
+        filename: article.filename,
+      });
+      if (result.success) {
+        showToast('Telegramに送信しました', 'success');
+        setTelegramLinked(true);
+      } else {
+        showToast('送信失敗: ' + (result.error || ''), 'error');
+      }
+    } catch (e) {
+      showToast('送信に失敗しました: ' + (e.message || ''), 'error');
+    } finally {
+      setSendingToTelegram(false);
+    }
+  };
 
   const handleRegenerateWithInstructions = () => {
     onRegenerate?.(article, regenerateInstructions);
@@ -308,6 +341,24 @@ export default function ArticlePreview({ article, accountId, onUpdate, onClose, 
           />
         )}
       </div>
+
+      {/* Telegram link status */}
+      {telegramLinked === false && (
+        <div className="px-4 py-2 border-t border-gray-200 bg-gray-50">
+          <button
+            onClick={handleSendToTelegram}
+            disabled={sendingToTelegram}
+            className="w-full px-3 py-2 text-sm rounded bg-sky-500 text-white hover:bg-sky-600 disabled:opacity-50"
+          >
+            {sendingToTelegram ? 'Telegram送信中...' : 'Telegramに送信'}
+          </button>
+        </div>
+      )}
+      {telegramLinked === true && (
+        <div className="px-4 py-2 border-t border-gray-200 bg-gray-50 text-xs text-gray-500 text-center">
+          Telegram連携済み
+        </div>
+      )}
 
       {/* Actions */}
       <div className="flex gap-2 px-4 py-3 border-t border-gray-200">
