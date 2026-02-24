@@ -71,6 +71,18 @@ const schema = {
     },
     default: {},
   },
+  telegram: {
+    type: 'object',
+    additionalProperties: true,
+    properties: {
+      bot_token: { type: 'string', default: '' },
+      chat_id: { type: 'string', default: '' },
+      enabled: { type: 'boolean', default: false },
+      telegraph_access_token: { type: 'string', default: '' },
+      edit_model: { type: 'string', default: 'claude-haiku-4-5-20251001' },
+    },
+    default: {},
+  },
 };
 
 let store = null;

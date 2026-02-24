@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import ApiKeySection from '../components/settings/ApiKeySection';
 import GoogleSheetsSection from '../components/settings/GoogleSheetsSection';
 import GitHubSection from '../components/settings/GitHubSection';
+import TelegramSection from '../components/settings/TelegramSection';
 import AppSettingsSection from '../components/settings/AppSettingsSection';
 import WritingGuidelinesSection from '../components/settings/WritingGuidelinesSection';
 import SystemPromptSection from '../components/settings/SystemPromptSection';
@@ -41,6 +42,7 @@ export default function SettingsPage() {
         <ApiKeySection config={config} onConfigChange={loadConfig} />
         <GoogleSheetsSection config={config} onConfigChange={loadConfig} />
         <GitHubSection config={config} onConfigChange={loadConfig} />
+        <TelegramSection config={config} onConfigChange={loadConfig} />
         <WritingGuidelinesSection config={config} onConfigChange={loadConfig} />
         <SystemPromptSection />
         <AppSettingsSection config={config} onConfigChange={loadConfig} />

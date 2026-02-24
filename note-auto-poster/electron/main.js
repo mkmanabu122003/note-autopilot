@@ -465,6 +465,68 @@ ipcMain.handle('thumbnails:readAsBase64', (_, filePath) => {
   }
 });
 
+// Telegram handlers
+ipcMain.handle('telegram:testConnection', async () => {
+  try {
+    const { telegramService } = require('./services/telegram');
+    telegramService.reset();
+    return await telegramService.testConnection();
+  } catch (e) {
+    logger.error('telegram:testConnection', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('telegram:detectChatId', async () => {
+  try {
+    const { telegramService } = require('./services/telegram');
+    return await telegramService.detectChatId();
+  } catch (e) {
+    logger.error('telegram:detectChatId', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('telegram:startPolling', async () => {
+  try {
+    const { telegramService } = require('./services/telegram');
+    await telegramService.startPolling();
+    return { success: true };
+  } catch (e) {
+    logger.error('telegram:startPolling', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('telegram:stopPolling', async () => {
+  try {
+    const { telegramService } = require('./services/telegram');
+    telegramService.stopPolling();
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('telegram:status', async () => {
+  try {
+    const { telegramService } = require('./services/telegram');
+    return telegramService.getStatus();
+  } catch (e) {
+    return { polling: false, configured: false, error: e.message };
+  }
+});
+
+ipcMain.handle('telegram:sendArticle', async (_, accountId, article) => {
+  try {
+    const { telegramService } = require('./services/telegram');
+    return await telegramService.sendArticleForReview(accountId, article);
+  } catch (e) {
+    logger.error('telegram:sendArticle', e.message);
+    return { success: false, error: e.message };
+  }
+});
+
 // Log handlers
 ipcMain.handle('logs:get', async (_, opts) => {
   try {
@@ -485,11 +547,39 @@ ipcMain.handle('logs:cleanup', async (_, days) => {
   }
 });
 
-app.whenReady().then(createWindow);
+app.whenReady().then(async () => {
+  createWindow();
+
+  // Auto-start Telegram polling if enabled
+  try {
+    const config = require('./utils/config');
+    const telegramEnabled = await config.get('telegram.enabled');
+    if (telegramEnabled) {
+      const { telegramService } = require('./services/telegram');
+      telegramService.on('articleStatusChanged', (accountId, filename, status) => {
+        const win = BrowserWindow.getAllWindows()[0];
+        if (win) win.webContents.send('telegram:articleStatusChanged', accountId, filename, status);
+      });
+      telegramService.on('articleUpdated', (accountId, filename) => {
+        const win = BrowserWindow.getAllWindows()[0];
+        if (win) win.webContents.send('telegram:articleUpdated', accountId, filename);
+      });
+      await telegramService.startPolling();
+    }
+  } catch (e) {
+    logger.error('telegram:autoStart', e.message);
+  }
+});
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 app.on('before-quit', async () => {
+  try {
+    const { telegramService } = require('./services/telegram');
+    telegramService.stopPolling();
+  } catch {
+    // cleanup failure is non-fatal
+  }
   try {
     const thumbnailGenerator = require('./services/thumbnail-generator');
     await thumbnailGenerator.cleanup();
