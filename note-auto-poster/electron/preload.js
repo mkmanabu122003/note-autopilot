@@ -59,6 +59,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     stopPolling: () => ipcRenderer.invoke('telegram:stopPolling'),
     status: () => ipcRenderer.invoke('telegram:status'),
     sendArticle: (accountId, article) => ipcRenderer.invoke('telegram:sendArticle', accountId, article),
+    isLinked: (accountId, filename) => ipcRenderer.invoke('telegram:isLinked', accountId, filename),
     onArticleStatusChanged: (callback) => {
       ipcRenderer.on('telegram:articleStatusChanged', (_, accountId, filename, status) => callback(accountId, filename, status));
     },
