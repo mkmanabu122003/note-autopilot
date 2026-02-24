@@ -1,7 +1,11 @@
 const config = require('../utils/config');
 const logger = require('../utils/logger');
+const frontmatter = require('../utils/frontmatter');
 const fs = require('fs');
 const path = require('path');
+const { generateStructureMap, formatForTelegram } = require('./structure-map');
+const { reviewSessionManager } = require('./review-session');
+const { batchRewrite, formatSummaryForTelegram } = require('./batch-rewriter');
 
 const TELEGRAPH_API = 'https://api.telegra.ph';
 const TELEGRAM_API = 'https://api.telegram.org';
@@ -435,22 +439,41 @@ class TelegramService {
       }
     }
 
-    // 5. Send action buttons
+    // 5. Generate & send structure map (Phase 0)
+    let structureMap = null;
+    try {
+      structureMap = await generateStructureMap(body);
+      const mapText = formatForTelegram(title, structureMap);
+      await this.sendMessage(mapText, { message_thread_id: topicId });
+    } catch (e) {
+      logger.error('telegram:structureMap', e.message);
+      // 構造マップ失敗は非致命的 — 続行する
+    }
+
+    // 6. Create review session (Phase 1 ready)
+    reviewSessionManager.create(accountId, filename, topicId, structureMap);
+
+    // 7. Send action buttons
     let buttonMessageId = null;
     const cbPrefix = `${accountId}:${filename}`;
     const btnResult = await this.sendMessage('アクションを選択してください：', {
       message_thread_id: topicId,
       reply_markup: {
-        inline_keyboard: [[
-          { text: '✅ 承認', callback_data: `approve:${cbPrefix}` },
-          { text: '❌ 却下', callback_data: `reject:${cbPrefix}` },
-          { text: '🔄 再生成', callback_data: `regen:${cbPrefix}` },
-        ]],
+        inline_keyboard: [
+          [
+            { text: '✅ 承認', callback_data: `approve:${cbPrefix}` },
+            { text: '❌ 却下', callback_data: `reject:${cbPrefix}` },
+          ],
+          [
+            { text: '🔄 再生成', callback_data: `regen:${cbPrefix}` },
+            { text: '📊 構造マップ', callback_data: `map:${cbPrefix}` },
+          ],
+        ],
       },
     });
     if (btnResult.ok) buttonMessageId = btnResult.result.message_id;
 
-    // 6. Save mapping
+    // 8. Save mapping
     const mapping = {
       topicId,
       messageIds,
@@ -539,6 +562,9 @@ class TelegramService {
     } else if (action === 'regen') {
       await this.answerCallbackQuery(query.id, '🔄 再生成を開始します...');
       await this._handleRegenerate(accountId, filename, query.message);
+    } else if (action === 'map') {
+      await this.answerCallbackQuery(query.id, '📊 構造マップを生成中...');
+      await this._handleStructureMapRequest(accountId, filename, query.message);
     }
   }
 
@@ -590,19 +616,91 @@ class TelegramService {
     const text = message.text || '';
     if (!text.trim()) return;
 
-    // Commands
+    // --- コマンド処理 ---
+
     if (text.startsWith('/approve') || text.startsWith('/承認')) {
       await this._updateArticleStatus(ref.accountId, ref.filename, 'reviewed');
       await this.sendMessage('✅ 承認しました', { message_thread_id: topicId });
       return;
     }
+
     if (text.startsWith('/reject') || text.startsWith('/却下')) {
       await this._updateArticleStatus(ref.accountId, ref.filename, 'rejected');
       await this.sendMessage('❌ 却下しました', { message_thread_id: topicId });
       return;
     }
 
-    // Otherwise treat as edit instruction
+    if (text.startsWith('/done')) {
+      await this._handleDone(ref.accountId, ref.filename, topicId, text);
+      return;
+    }
+
+    if (text.startsWith('/cancel') || text.startsWith('/キャンセル')) {
+      await this._handleCancel(topicId);
+      return;
+    }
+
+    if (text.startsWith('/undo') || text.startsWith('/取消')) {
+      await this._handleUndo(topicId);
+      return;
+    }
+
+    if (text.startsWith('/status') || text.startsWith('/状態')) {
+      await this._handleSessionStatus(topicId);
+      return;
+    }
+
+    if (text.startsWith('/retry')) {
+      await this._handleRetry(ref.accountId, ref.filename, topicId, text);
+      return;
+    }
+
+    if (text.startsWith('/map') || text.startsWith('/構造')) {
+      const mapping = (this.mappings[ref.accountId] || {})[ref.filename];
+      await this._handleStructureMapRequest(ref.accountId, ref.filename, { message_thread_id: topicId });
+      return;
+    }
+
+    if (text.startsWith('/edit')) {
+      // 従来の即時編集モード（セッションを経由しない直接編集）
+      const instruction = text.replace(/^\/edit\s*/, '').trim();
+      if (instruction) {
+        await this._handleEdit(ref.accountId, ref.filename, topicId, instruction);
+      } else {
+        await this.sendMessage('使い方: /edit [編集指示]', { message_thread_id: topicId });
+      }
+      return;
+    }
+
+    // --- レビューセッション: 指示蓄積 ---
+
+    const session = reviewSessionManager.get(topicId);
+
+    if (session && session.state === 'collecting') {
+      // セッションが指示受付中 → 指示として蓄積
+      try {
+        const parsed = session.addInstruction(text);
+        const count = session.instructions.length;
+        await this.sendMessage(
+          `📝 ${count}件目: ${escapeSessionHtml(parsed.display)}\n\n/done で一括実行 | /undo で取消 | /status で確認`,
+          { message_thread_id: topicId }
+        );
+      } catch (e) {
+        await this.sendMessage(`⚠️ ${e.message}`, { message_thread_id: topicId });
+      }
+      return;
+    }
+
+    if (session && session.state === 'done') {
+      // 完了後のメッセージ → /retry として扱うか確認
+      await this.sendMessage(
+        'リライト済みです。追加修正するには:\n/retry S4 もう少し具体的に\n\n承認するには /approve',
+        { message_thread_id: topicId }
+      );
+      return;
+    }
+
+    // セッションなし or executing中 → 従来の即時編集にフォールバック
     await this._handleEdit(ref.accountId, ref.filename, topicId, text);
   }
 
@@ -698,6 +796,205 @@ class TelegramService {
     }
   }
 
+  // --- Review Session Commands ---
+
+  async _handleDone(accountId, filename, topicId, text) {
+    const session = reviewSessionManager.get(topicId);
+    if (!session) {
+      await this.sendMessage('レビューセッションがありません。記事に指示を送信してください。', { message_thread_id: topicId });
+      return;
+    }
+
+    if (session.instructions.length === 0) {
+      await this.sendMessage('指示がありません。先にセクション指定で指示を追加してください。\n例: S4 具体例を追加', { message_thread_id: topicId });
+      return;
+    }
+
+    // モデル指定のパース: /done opus, /done sonnet
+    const modelArg = text.replace(/^\/done\s*/, '').trim().toLowerCase();
+    const modelKey = ['opus', 'sonnet', 'haiku'].includes(modelArg) ? modelArg : null;
+
+    try {
+      session.startExecution(modelKey);
+
+      const modelLabel = modelKey || 'sonnet';
+      await this.sendMessage(
+        `⏳ 一括リライト実行中...\n指示: ${session.instructions.length}件\nモデル: ${modelLabel}`,
+        { message_thread_id: topicId }
+      );
+
+      // 記事を読み込む
+      const dir = getArticlesDir(accountId);
+      const filePath = path.join(dir, filename);
+      if (!fs.existsSync(filePath)) {
+        throw new Error('記事ファイルが見つかりません');
+      }
+      const articleContent = fs.readFileSync(filePath, 'utf-8');
+
+      // 一括リライト実行
+      const result = await batchRewrite(articleContent, session.instructions, {
+        model: modelKey,
+      });
+
+      // 記事を保存
+      fs.writeFileSync(filePath, result.rewrittenContent, 'utf-8');
+
+      // セッション完了
+      session.completeExecution(result);
+
+      // Telegraph ページを更新
+      const mapping = (this.mappings[accountId] || {})[filename];
+      if (mapping?.telegraphPath) {
+        const { body: updatedBody } = frontmatter.parse(result.rewrittenContent);
+        const title = frontmatter.extractTitle(updatedBody) || '無題';
+        const nodes = markdownToTelegraphNodes(updatedBody);
+        await this.editTelegraphPage(mapping.telegraphPath, title, nodes);
+      }
+
+      // 結果サマリーを送信
+      const summaryText = formatSummaryForTelegram(result.summary, result.usage);
+      await this.sendMessage(summaryText, { message_thread_id: topicId });
+
+      // GitHub に push
+      try {
+        const githubEnabled = await config.get('github.enabled');
+        if (githubEnabled) {
+          const { githubSync } = require('../utils/github-sync');
+          const prMode = await config.get('github.pr_mode');
+          if (prMode) {
+            await githubSync.pushArticleToPR(accountId, filename, 'reviewing');
+          } else {
+            await githubSync.pushArticle(accountId, filename, 'reviewing');
+          }
+        }
+      } catch (e) {
+        logger.error('telegram:batchRewrite:github', e.message);
+      }
+
+      this._emit('articleUpdated', accountId, filename);
+      logger.info('telegram:batchRewrite', `${filename}: ${result.summary.instructionCount} edits applied`);
+    } catch (e) {
+      logger.error('telegram:batchRewrite', e.message);
+      session.state = 'collecting'; // 失敗時は collecting に戻す
+      await this.sendMessage(`❌ リライト失敗: ${e.message}`, { message_thread_id: topicId });
+    }
+  }
+
+  async _handleCancel(topicId) {
+    const session = reviewSessionManager.get(topicId);
+    if (!session) {
+      await this.sendMessage('レビューセッションがありません。', { message_thread_id: topicId });
+      return;
+    }
+
+    const count = session.instructions.length;
+    session.clearInstructions();
+    await this.sendMessage(`🗑 ${count}件の指示をクリアしました。`, { message_thread_id: topicId });
+  }
+
+  async _handleUndo(topicId) {
+    const session = reviewSessionManager.get(topicId);
+    if (!session) {
+      await this.sendMessage('レビューセッションがありません。', { message_thread_id: topicId });
+      return;
+    }
+
+    const removed = session.undoLast();
+    if (!removed) {
+      await this.sendMessage('取り消す指示がありません。', { message_thread_id: topicId });
+      return;
+    }
+
+    const remaining = session.instructions.length;
+    await this.sendMessage(
+      `↩️ 取消: ${escapeSessionHtml(removed.display)}\n残り: ${remaining}件`,
+      { message_thread_id: topicId }
+    );
+  }
+
+  async _handleSessionStatus(topicId) {
+    const session = reviewSessionManager.get(topicId);
+    if (!session) {
+      await this.sendMessage('レビューセッションがありません。', { message_thread_id: topicId });
+      return;
+    }
+
+    const summary = session.getSummary();
+    const lines = [];
+    lines.push(`<b>📋 セッション状態: ${summary.state}</b>`);
+    lines.push(`指示: ${summary.instructionCount}件 | 履歴: ${summary.historyCount}回`);
+
+    if (summary.instructions.length > 0) {
+      lines.push('');
+      lines.push('<b>蓄積中の指示:</b>');
+      summary.instructions.forEach((inst, i) => {
+        lines.push(`${i + 1}. ${escapeSessionHtml(inst)}`);
+      });
+    }
+
+    lines.push('');
+    lines.push('/done で実行 | /done opus で高品質実行');
+    lines.push('/undo で最後の指示を取消');
+    lines.push('/cancel で全指示クリア');
+
+    await this.sendMessage(lines.join('\n'), { message_thread_id: topicId });
+  }
+
+  async _handleRetry(accountId, filename, topicId, text) {
+    const session = reviewSessionManager.get(topicId);
+    if (!session) {
+      await this.sendMessage('レビューセッションがありません。', { message_thread_id: topicId });
+      return;
+    }
+
+    // /retry の後に指示がある場合、それを追加して collecting に戻す
+    session.retry();
+    const instruction = text.replace(/^\/retry\s*/, '').trim();
+    if (instruction) {
+      const parsed = session.addInstruction(instruction);
+      await this.sendMessage(
+        `🔄 追加修正モード\n📝 1件目: ${escapeSessionHtml(parsed.display)}\n\n追加指示を送信するか、/done で実行`,
+        { message_thread_id: topicId }
+      );
+    } else {
+      await this.sendMessage(
+        '🔄 追加修正モードに入りました。指示を送信してください。\n例: S6 もう少し具体的に',
+        { message_thread_id: topicId }
+      );
+    }
+  }
+
+  async _handleStructureMapRequest(accountId, filename, message) {
+    const topicId = message.message_thread_id;
+    const dir = getArticlesDir(accountId);
+    const filePath = path.join(dir, filename);
+
+    if (!fs.existsSync(filePath)) {
+      await this.sendMessage('記事ファイルが見つかりません', { message_thread_id: topicId });
+      return;
+    }
+
+    try {
+      await this.sendMessage('📊 構造マップを生成中...', { message_thread_id: topicId });
+      const content = fs.readFileSync(filePath, 'utf-8');
+      const { body } = frontmatter.parse(content);
+      const title = frontmatter.extractTitle(body) || '無題';
+      const structureMap = await generateStructureMap(body);
+
+      // セッションの構造マップを更新
+      const session = reviewSessionManager.get(topicId);
+      if (session) {
+        session.structureMap = structureMap;
+      }
+
+      const mapText = formatForTelegram(title, structureMap);
+      await this.sendMessage(mapText, { message_thread_id: topicId });
+    } catch (e) {
+      logger.error('telegram:structureMapRequest', e.message);
+      await this.sendMessage(`構造マップ生成に失敗: ${e.message}`, { message_thread_id: topicId });
+    }
+  }
+
   // --- Status ---
 
   getStatus() {
@@ -715,6 +1012,13 @@ class TelegramService {
   reset() {
     this._initPromise = null;
   }
+}
+
+function escapeSessionHtml(text) {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 // Singleton
