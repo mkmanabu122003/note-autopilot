@@ -84,7 +84,22 @@ async function generateStructureMap(articleBody) {
     throw new Error('構造マップのパースに失敗しました');
   }
 
-  return JSON.parse(jsonMatch[0]);
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonMatch[0]);
+  } catch (e) {
+    throw new Error(`構造マップのJSONパースに失敗しました: ${e.message}`);
+  }
+
+  // 最低限の構造バリデーション
+  if (!parsed.sections || !Array.isArray(parsed.sections)) {
+    throw new Error('構造マップに sections フィールドがありません');
+  }
+  if (!parsed.overall || typeof parsed.overall !== 'object') {
+    throw new Error('構造マップに overall フィールドがありません');
+  }
+
+  return parsed;
 }
 
 /**

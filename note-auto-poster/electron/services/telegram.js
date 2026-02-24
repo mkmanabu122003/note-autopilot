@@ -551,6 +551,12 @@ class TelegramService {
     const [action, accountId, ...filenameParts] = parts;
     const filename = filenameParts.join(':');
 
+    // パストラバーサル防止
+    if (filename !== path.basename(filename)) {
+      logger.error('telegram:callback', `Invalid filename rejected: ${filename}`);
+      return;
+    }
+
     if (action === 'approve') {
       await this._updateArticleStatus(accountId, filename, 'reviewed');
       await this.answerCallbackQuery(query.id, '✅ 承認しました');
@@ -656,7 +662,6 @@ class TelegramService {
     }
 
     if (text.startsWith('/map') || text.startsWith('/構造')) {
-      const mapping = (this.mappings[ref.accountId] || {})[ref.filename];
       await this._handleStructureMapRequest(ref.accountId, ref.filename, { message_thread_id: topicId });
       return;
     }
@@ -700,7 +705,16 @@ class TelegramService {
       return;
     }
 
-    // セッションなし or executing中 → 従来の即時編集にフォールバック
+    if (session && session.state === 'executing') {
+      // 実行中はメッセージを受け付けない（並行編集によるデータ破壊防止）
+      await this.sendMessage(
+        '⏳ リライト実行中です。完了までお待ちください。',
+        { message_thread_id: topicId }
+      );
+      return;
+    }
+
+    // セッションなし → 従来の即時編集にフォールバック
     await this._handleEdit(ref.accountId, ref.filename, topicId, text);
   }
 
@@ -831,6 +845,10 @@ class TelegramService {
       }
       const articleContent = fs.readFileSync(filePath, 'utf-8');
 
+      // バックアップを作成（リライト失敗時のデータ損失防止）
+      const backupPath = filePath + '.bak';
+      fs.writeFileSync(backupPath, articleContent, 'utf-8');
+
       // 一括リライト実行
       const result = await batchRewrite(articleContent, session.instructions, {
         model: modelKey,
@@ -838,6 +856,9 @@ class TelegramService {
 
       // 記事を保存
       fs.writeFileSync(filePath, result.rewrittenContent, 'utf-8');
+
+      // バックアップを削除（成功時のみ）
+      try { fs.unlinkSync(backupPath); } catch (_) { /* ignore */ }
 
       // セッション完了
       session.completeExecution(result);

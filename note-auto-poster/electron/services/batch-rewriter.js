@@ -71,10 +71,15 @@ async function batchRewrite(articleContent, instructions, options = {}) {
 
   const message = await client.messages.create({
     model,
-    max_tokens: 8192,
+    max_tokens: 16384,
     system: systemPrompt,
     messages: [{ role: 'user', content: userPrompt }],
   });
+
+  // トランケート検出: 記事が途中で切れるとデータ損失になるため必ずチェック
+  if (message.stop_reason === 'max_tokens') {
+    throw new Error('リライト結果がトークン上限で切り詰められました。記事が長すぎる可能性があります。');
+  }
 
   const rewrittenBody = message.content[0].text;
 

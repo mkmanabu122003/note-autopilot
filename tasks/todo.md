@@ -34,6 +34,15 @@
 - [x] review-session.test.js（18テスト全合格）
 - [ ] 実環境での E2E テスト（Telegram Bot + Claude API）
 
+### コード品質改善（レビュー後修正）
+- [x] batch-rewriter: max_tokens 16384に増加 + stop_reason=max_tokens のトランケート検出
+- [x] telegram.js: _handleDone にバックアップ作成（リライト失敗時のデータ損失防止）
+- [x] telegram.js: callback_data の filename パストラバーサル防止
+- [x] telegram.js: executing 状態でのメッセージを拒否（並行編集によるデータ破壊防止）
+- [x] structure-map.js: JSON.parse の try/catch + sections/overall バリデーション
+- [x] review-session.js: retry() に executing 状態ガード追加
+- [x] telegram.js: 未使用変数 mapping を削除
+
 ## Telegram コマンド一覧
 
 | コマンド | 説明 |

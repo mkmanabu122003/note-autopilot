@@ -94,6 +94,9 @@ class ReviewSession {
    * 追加修正モードに戻る
    */
   retry() {
+    if (this.state === 'executing') {
+      throw new Error('実行中はretryできません。完了をお待ちください。');
+    }
     this.state = 'collecting';
   }
 
