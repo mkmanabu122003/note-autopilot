@@ -161,7 +161,7 @@ function buildSummary(originalBody, rewrittenBody, instructions) {
 /**
  * サマリーをTelegram用テキストに整形する
  */
-function formatSummaryForTelegram(summary, usage) {
+function formatSummaryForTelegram(summary, usage, telegraphUrl) {
   const lines = [];
   lines.push(`\u2705 <b>\u30ea\u30e9\u30a4\u30c8\u5b8c\u4e86\uff08${summary.instructionCount}\u4ef6\uff09</b>`);
   lines.push('');
@@ -176,6 +176,11 @@ function formatSummaryForTelegram(summary, usage) {
   if (usage) {
     const modelName = Object.entries(MODELS).find(([, v]) => v === usage.model)?.[0] || usage.model;
     lines.push(`\u30e2\u30c7\u30eb: ${modelName} | \u30c8\u30fc\u30af\u30f3: ${usage.inputTokens + usage.outputTokens}`);
+  }
+
+  if (telegraphUrl) {
+    lines.push('');
+    lines.push(`\ud83d\udcc4 <a href="${telegraphUrl}">\u4fee\u6b63\u7248\u3092\u78ba\u8a8d</a>`);
   }
 
   lines.push('');

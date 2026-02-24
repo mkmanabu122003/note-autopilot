@@ -872,8 +872,11 @@ class TelegramService {
         await this.editTelegraphPage(mapping.telegraphPath, title, nodes);
       }
 
-      // 結果サマリーを送信
-      const summaryText = formatSummaryForTelegram(result.summary, result.usage);
+      // 結果サマリーを送信（Telegraphリンク付き）
+      const telegraphUrl = mapping?.telegraphPath
+        ? `https://telegra.ph/${mapping.telegraphPath}`
+        : null;
+      const summaryText = formatSummaryForTelegram(result.summary, result.usage, telegraphUrl);
       await this.sendMessage(summaryText, { message_thread_id: topicId });
 
       // GitHub に push
